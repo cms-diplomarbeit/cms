@@ -1,7 +1,7 @@
 name: Java CI with Maven
 
 permissions:
-  contents: write   # nötig, damit die Snapshot-Action in den Dependency Graph schreiben darf :contentReference[oaicite:0]{index=0}
+  contents: write   # nötig, wenn du den Dependency-Graph nutzen willst
 
 on:
   push:
@@ -26,8 +26,9 @@ jobs:
     - name: Build with Maven
       run: mvn -B package --file diplomarbeit/DiplomarbeitCMS/pom.xml
 
-    - name: Generate & Submit Dependency Snapshot
-      uses: advanced-security/maven-dependency-submission-action@v5  # aktuelle Version mit Plugin 4.0.3 :contentReference[oaicite:1]{index=1}
-      with:
-        directory: 'diplomarbeit/DiplomarbeitCMS'  # Pfad zu deinem pom.xml :contentReference[oaicite:2]{index=2}
-        token: ${{ secrets.GITHUB_TOKEN }}
+    # Wenn du den GitHub Dependency Graph nicht aktivierst, kommentiere diesen Schritt aus:
+    # - name: Generate & Submit Dependency Snapshot
+    #   uses: advanced-security/maven-dependency-submission-action@v5
+    #   with:
+    #     directory: 'diplomarbeit/DiplomarbeitCMS'
+    #     token: ${{ secrets.GITHUB_TOKEN }}
