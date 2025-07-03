@@ -9,7 +9,6 @@ public class SampleTextSplitter implements Contracts.TextSplitter {
     private final int chunkSize = 100;
     private final int overlap = 200;
 
-
     @Override
     public List<String> split(String text) {
         List<String> chunks = new ArrayList<>();

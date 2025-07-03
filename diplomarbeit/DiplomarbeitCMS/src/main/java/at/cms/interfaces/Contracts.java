@@ -9,10 +9,10 @@ public class Contracts {
     public interface TextSplitter {
         List<String> split(String text);
     }
-    public interface EmbeddingService {
+    public interface IEmbeddingService {
         float[] embed(String text);
     }
-    public interface VectorStore {
+    public interface IVectorStore {
         void upsert(String id, float[] vector, Map<String, String> metaData);
         List<SearchResult> query(float[] vector, int topK);
     }
