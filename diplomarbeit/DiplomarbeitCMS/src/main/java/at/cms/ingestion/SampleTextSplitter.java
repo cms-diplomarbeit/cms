@@ -6,9 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SampleTextSplitter implements Contracts.TextSplitter {
-    private final int chunkSize = 100;
-    private final int overlap = 200;
-
+    private final int chunkSize = 200;
+    private final int overlap = 100;
 
     @Override
     public List<String> split(String text) {

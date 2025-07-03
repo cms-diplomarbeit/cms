@@ -1,15 +1,14 @@
-version: '3.8'
+version: "3.8"
 services:
   ollama:
-    image: tonioacr123.azurecr.io/ollama:latest
+    image: ghcr.io/cms-diplomarbeit/cms:ollama-latest
     container_name: ollama
-    command: ["serve"]
+    command: ["serve", "llama2:7B"]
     ports:
       - "11434:11434"
+    shm_size: "1g"
     volumes:
       - ollama_data:/root/.ollama
-    shm_size: '1g'
-    restart: unless-stopped
 
 volumes:
   ollama_data:
