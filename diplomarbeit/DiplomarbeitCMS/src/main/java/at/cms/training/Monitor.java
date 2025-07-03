@@ -1,4 +1,4 @@
-﻿package at.cms.training;
+package at.cms.training;
 
 import java.nio.file.WatchService;
 import java.util.concurrent.ExecutorService;
