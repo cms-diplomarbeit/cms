@@ -1,37 +1,47 @@
-# Ollama Docker-Compose Deployment
+# Ollama Docker Image für Azure & GHCR
 
-Dieses Repository enthält ein Docker-Compose-Setup, mit dem du deinen Ollama (Llama2:7B) Service aus deiner Azure Container Registry (ACR) schnell und reproduzierbar aufsetzen kannst.
-
----
-
-## Inhaltsübersicht
-
-- [Voraussetzungen](#voraussetzungen)  
-- [Repository klonen](#repository-klonen)  
-- [ACR-Login und Credentials](#acr-login-und-credentials)  
-- [Docker-Compose konfigurieren](#docker-compose-konfigurieren)  
-- [Service starten](#service-starten)  
-- [Modell nachladen](#modell-nachladen)  
-- [Funktionstest](#funktionstest)  
-- [Optional: Zugriff von extern](#optional-zugriff-von-extern)  
-- [Troubleshooting](#troubleshooting)  
-- [weiterführende Hinweise](#weiterführende-hinweise)  
+Dieses Repository enthält alles, was du brauchst, um das Ollama-Image aus GitHub Container Registry (GHCR) zu klonen, lokal oder in deiner Azure-VM zu betreiben und mit ihm via HTTP API zu kommunizieren.
 
 ---
 
-## Voraussetzungen
+## 📖 Übersicht
 
-- **Docker** und **Docker-Compose** auf dem Host installiert  
-- **Azure CLI** (nur zur einmaligen Einrichtung der ACR Credentials)  
-- Zugriff auf deine ACR mit Administrator-Rechten  
-- SSH-Zugang zur VM (wenn du auf einer entfernten Maschine deployst)
+Das hier bereitgestellte Docker-Image läuft einen Ollama-Server (Version 0.9.4) mit Llama2:7B auf CPU.  
+Du findest es unter:
+
 
 ---
 
-## Repository klonen
+## 🚀 Voraussetzungen
 
-Auf dem gewünschten Host (lokal oder VM) führst du aus:
+- **Docker** ≥ 20.10  
+- **(optional)** Docker Compose ≥ 1.29  
+- **(optional)** Azure CLI (wenn du in Azure VM arbeitest)  
+- GitHub-Zugang mit Schreib-Rechten auf das GHCR-Repository  
+- Ein **Personal Access Token (classic)** mit den Scopes:
+  - `repo` (Read & Write)
+  - `write:packages` & `read:packages`
+
+---
+
+## 🔑 GHCR-Login
+
+1. **Umgebungsvariablen setzen** (Linux/macOS – ersetze `YOUR_TOKEN` durch deinen PAT):
+
+    ```bash
+    export GHCR_USER=ignacantonio
+    export GHCR_TOKEN=YOUR_TOKEN
+    ```
+
+2. **Bei GHCR einloggen**:
+
+    ```bash
+    echo $GHCR_TOKEN | docker login ghcr.io -u $GHCR_USER --password-stdin
+    ```
+
+---
+
+## 📥 Image pullen
 
 ```bash
-git clone https://github.com/<dein-user>/ollama-compose.git
-cd ollama-compose
+docker pull ghcr.io/cms-diplomarbeit/cms:ollama-latest
