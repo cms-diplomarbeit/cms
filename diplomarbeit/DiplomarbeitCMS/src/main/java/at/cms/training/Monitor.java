@@ -1,4 +1,4 @@
-package at.cms.training;
+﻿package at.cms.training;
 
 import java.nio.file.WatchService;
 import java.util.concurrent.ExecutorService;
@@ -12,6 +12,14 @@ import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import io.qdrant.client.QdrantClient;
+import io.qdrant.client.QdrantGrpcClient;
+import io.qdrant.client.grpc.Points.PointStruct;
+import io.qdrant.client.grpc.Points.Vector;
+import java.util.HashMap;
+import java.util.Map;
 
 public class Monitor {
     private final String watchDir;
@@ -20,6 +28,7 @@ public class Monitor {
     private WatchService watcher;
     private boolean isRunning = false;
     private final HttpClient httpClient;
+    private final Gson gson;
 
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
@@ -28,7 +37,8 @@ public class Monitor {
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_2)
                 .build();
-
+        this.gson = new Gson();
+        
         try {
             Files.createDirectories(Paths.get(outputDir));
         } catch (IOException e) {
@@ -81,14 +91,16 @@ public class Monitor {
             byte[] content = Files.readAllBytes(filePath);
             String text = callTikaWithRestClient(content);
 
-            // Save text to file
-            saveTextToFile(filePath.getFileName().toString(), text);
+            String filename = filePath.getFileName().toString();
 
-            System.out.println("--- File processed: " + filePath.getFileName() + " ---");
-            System.out.println("Text has been extracted and saved.");
+            getEmbeddings(text);
+
+            System.out.println("--- File processed: " + filename + " ---");
+            System.out.println("Text has been extracted, embedded, and stored in Qdrant.");
             System.out.println("------------------------------");
         } catch (Exception e) {
-            System.err.println("Error extracting from " + filePath + ": " + e.getMessage());
+            System.err.println("Error processing " + filePath + ": " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -110,13 +122,27 @@ public class Monitor {
         }
     }
 
-    private void saveTextToFile(String originalFilename, String text) throws IOException {
-        // Create unique filename with timestamp
-        String baseName = originalFilename.replaceFirst("\\.(pdf|xlsx|pptx)$", "");
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        String txtFilename = baseName + "_" + timestamp + ".txt";
+    private float[] getEmbeddings(String text) throws IOException, InterruptedException {
+        String embeddingServerUrl = "http://file1.lan.elite-zettl.at:11434/api/embed";
+        
+        JsonObject requestBody = new JsonObject();
+        requestBody.addProperty("model", "mxbai-embed-large");
+        requestBody.addProperty("input", text);
 
-        Path outputPath = Paths.get(outputDir, txtFilename);
-        Files.writeString(outputPath, text);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(embeddingServerUrl))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(requestBody)))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() >= 200 && response.statusCode() < 300) {
+            JsonObject jsonResponse = gson.fromJson(response.body(), JsonObject.class);
+            // Die Embedding-API gibt die Vektoren direkt im "embedding" Feld zurück
+            return gson.fromJson(jsonResponse.getAsJsonObject("embedding"), float[].class);
+        } else {
+            throw new IOException("Embedding API Error: " + response.statusCode() + " - " + response.body());
+        }
     }
 }
