@@ -21,7 +21,7 @@ public class Prompts {
         
         Danach analysiere diese Daten, falls Sie gut oder durchschnittlich sind sage nur 'Daten sind OK', falls nicht, sage mir bitte warum die Daten nicht Okay sind.
         Bitte auf Deutsch antworten
-        Die Daten holst du dir über diesen Link :
+        Die Daten holst du dir über diesen Link + Accesstoken:
         """;
 
     private static final String COMPARISON_CALL_TEMPLATE = """
@@ -48,7 +48,7 @@ public class Prompts {
             DIe Daten holst du dir über folgende zwei Links:
             """;
 
-    public static String getDailyCallPrompt(URI dataLink) {
+    public static String getDailyCallPrompt(URI dataLink, String accessToken) {
         // hier liefert String.format genau einen String-Parameter für das eine %s
         return String.format(DAILY_CALL_TEMPLATE, dataLink);
     }
