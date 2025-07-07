@@ -9,9 +9,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
+import org.json.JSONObject;
 
 public class Monitor {
     private final String watchDir;
@@ -28,7 +27,7 @@ public class Monitor {
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_2)
                 .build();
-
+        
         try {
             Files.createDirectories(Paths.get(outputDir));
         } catch (IOException e) {
@@ -64,7 +63,8 @@ public class Monitor {
                     if (supportedExtensions.stream().anyMatch(lowercaseName::endsWith)) {
                         Path filePath = Paths.get(watchDir, filename.toString());
                         if (kind == StandardWatchEventKinds.ENTRY_CREATE || kind == StandardWatchEventKinds.ENTRY_MODIFY) {
-                            extractAndSaveText(filePath);
+                            System.out.println("Embeddings: " + extractTextAndCreateEmbeddings(filePath));
+                            extractTextAndCreateEmbeddings(filePath);
                         }
                     }
                 }
@@ -76,19 +76,23 @@ public class Monitor {
         }
     }
 
-    private void extractAndSaveText(Path filePath) {
+    private float[] extractTextAndCreateEmbeddings(Path filePath) {
         try {
             byte[] content = Files.readAllBytes(filePath);
             String text = callTikaWithRestClient(content);
+            float[] embeddings = getEmbeddings(text);
 
-            // Save text to file
-            saveTextToFile(filePath.getFileName().toString(), text);
+            String filename = filePath.getFileName().toString();
 
-            System.out.println("--- File processed: " + filePath.getFileName() + " ---");
-            System.out.println("Text has been extracted and saved.");
+            System.out.println("--- File processed: " + filename + " ---");
+            System.out.println("Text has been extracted, embedded, and stored in Qdrant.");
             System.out.println("------------------------------");
+            
+            return embeddings;
         } catch (Exception e) {
-            System.err.println("Error extracting from " + filePath + ": " + e.getMessage());
+            System.err.println("Error processing " + filePath + ": " + e.getMessage());
+            e.printStackTrace();
+            return null;
         }
     }
 
@@ -110,13 +114,31 @@ public class Monitor {
         }
     }
 
-    private void saveTextToFile(String originalFilename, String text) throws IOException {
-        // Create unique filename with timestamp
-        String baseName = originalFilename.replaceFirst("\\.(pdf|xlsx|pptx)$", "");
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        String txtFilename = baseName + "_" + timestamp + ".txt";
+    private float[] getEmbeddings(String text) throws IOException, InterruptedException {
+        String embeddingServerUrl = "http://file1.lan.elite-zettl.at:11434/api/embed";
+        
+        JSONObject requestBody = new JSONObject();
+        requestBody.put("model", "mxbai-embed-large");
+        requestBody.put("input", text);
 
-        Path outputPath = Paths.get(outputDir, txtFilename);
-        Files.writeString(outputPath, text);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(embeddingServerUrl))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() >= 200 && response.statusCode() < 300) {
+            JSONObject jsonResponse = new JSONObject(response.body());
+            var embeddingArray = jsonResponse.getJSONArray("embedding");
+            float[] embeddings = new float[embeddingArray.length()];
+            for (int i = 0; i < embeddingArray.length(); i++) {
+                embeddings[i] = embeddingArray.getFloat(i);
+            }
+            return embeddings;
+        } else {
+            throw new IOException("Embedding API Error: " + response.statusCode() + " - " + response.body());
+        }
     }
 }
