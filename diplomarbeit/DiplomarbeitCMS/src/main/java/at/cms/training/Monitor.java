@@ -1,5 +1,7 @@
 package at.cms.training;
 
+import at.cms.training.dto.EmbeddingDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.WatchService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -10,6 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
 import org.json.JSONObject;
 
 public class Monitor {
@@ -19,6 +22,20 @@ public class Monitor {
     private WatchService watcher;
     private boolean isRunning = false;
     private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
+
+    private HttpResponse.BodyHandler<EmbeddingDto> jsonBodyHandler() {
+        return responseInfo -> HttpResponse.BodySubscribers.mapping(
+            HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
+            body -> {
+                try {
+                    return objectMapper.readValue(body, EmbeddingDto.class);
+                } catch (Exception e) {
+                    throw new RuntimeException("Error parsing JSON", e);
+                }
+            }
+        );
+    }
 
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
@@ -27,6 +44,7 @@ public class Monitor {
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_2)
                 .build();
+        this.objectMapper = new ObjectMapper();
         
         try {
             Files.createDirectories(Paths.get(outputDir));
@@ -63,7 +81,6 @@ public class Monitor {
                     if (supportedExtensions.stream().anyMatch(lowercaseName::endsWith)) {
                         Path filePath = Paths.get(watchDir, filename.toString());
                         if (kind == StandardWatchEventKinds.ENTRY_CREATE || kind == StandardWatchEventKinds.ENTRY_MODIFY) {
-                            System.out.println("Embeddings: " + extractTextAndCreateEmbeddings(filePath));
                             extractTextAndCreateEmbeddings(filePath);
                         }
                     }
@@ -127,18 +144,12 @@ public class Monitor {
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<EmbeddingDto> response = httpClient.send(request, jsonBodyHandler());
 
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
-            JSONObject jsonResponse = new JSONObject(response.body());
-            var embeddingArray = jsonResponse.getJSONArray("embedding");
-            float[] embeddings = new float[embeddingArray.length()];
-            for (int i = 0; i < embeddingArray.length(); i++) {
-                embeddings[i] = embeddingArray.getFloat(i);
-            }
-            return embeddings;
+            return response.body().getEmbeddings()[0];
         } else {
-            throw new IOException("Embedding API Error: " + response.statusCode() + " - " + response.body());
+            throw new IOException("Embedding API Error: " + response.statusCode());
         }
     }
 }

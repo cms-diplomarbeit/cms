@@ -1,5 +1,4 @@
 package at.cms.api;
-import java.io.IOException;
 import java.util.Scanner;
 
 
