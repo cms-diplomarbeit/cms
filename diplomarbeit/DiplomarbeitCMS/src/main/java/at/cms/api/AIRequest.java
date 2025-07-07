@@ -17,6 +17,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.Scanner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 public class AIRequest {
@@ -48,14 +50,44 @@ public class AIRequest {
 
 
     public static void DailyCall(String accessToken) {
+        EnergyStats.Stats stats = null;
         System.out.print("Please enter the SubscriptionIDs: ");
         String subscriptionIDs = scanner.nextLine();
         var dates = getDates();
         String valueTypes = "AVERAGE,MIN,MAX";
-        int numberOfValues = 1400;
+        int numberOfValues = 10;
 
         var uri = URIBuilder(subscriptionIDs, dates[1].toString(), dates[0].toString(), valueTypes, numberOfValues);
-        String dailyPrompt = Prompts.getDailyCallPrompt(uri, accessToken);
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(uri)
+                .GET()
+                .header("Accept", "application/json")
+                .header("Authorization", "Bearer " + accessToken)
+                .build();
+
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            JSONObject root = new JSONObject(response.body());
+            var responseStats = root
+                    .getJSONArray("subscriptionData")
+                    .getJSONObject(0)
+                    .getJSONArray("values");
+            var name = root
+                    .getJSONArray("subscriptionData")
+                    .getJSONObject(0)
+                    .getString("translatedName");
+            var unit = root
+                    .getJSONArray("subscriptionData")
+                    .getJSONObject(0)
+                    .getString("humanReadableUnit");
+            stats = EnergyStats.computedStats(response.body());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        String dailyPrompt = Prompts.getDailyCallPrompt(stats.toString());
         try {
             String answer = KICall(dailyPrompt);
             System.out.println(answer);
@@ -110,20 +142,22 @@ public class AIRequest {
                 return;
             }
 
-            JSONObject jsonObject = new JSONObject(response.body());
+            String body = response.body().trim();
+            JSONObject root = new JSONObject(body);
+            JSONArray tags = root.getJSONArray("entries");
 
-            if(jsonObject.has("translation")) {
-                System.out.println("Translation: " + jsonObject.getString("translation"));
-            }
-            if (jsonObject.has("subscriptions")) {
-                System.out.println("Subscriptions:");
-                JSONArray subs = jsonObject.getJSONArray("subscriptions");
-                for (int i = 0; i < subs.length(); i++) {
-                    System.out.println("  - " + subs.getString(i));
+            var map = TagSelector.mapTranslationsToSubs(tags);
+            boolean foundTag = false;
+            while(!foundTag) {
+                System.out.print("Please enter the tag that you want to analyse: ");
+                var input = scanner.nextLine();
+
+                if(!map.containsKey(input)) {
+                    System.out.println("Tag not found");
                 }
-            } else {
-                System.out.println("Keine Subscriptions im Response gefunden.");
+                System.out.println("Hi");
             }
+
         } catch(IOException | InterruptedException e) {
             e.printStackTrace();
         }
@@ -166,7 +200,7 @@ public class AIRequest {
     public static URI URIBuilder(String subscriptions, String measuredTimeFromUtc, String measuredTimeToUtc,
                                  String valueTypes, int numberOfValues) {
         String params = String.format(
-                "subscriptions=%s&measuredFromUtc=%s&measuredToUtc=%s&valueTypes=%s&numberOfValues=%d",
+                "subscriptions=%s&measuredFromUtc=%s&measuredToUtc=%s&valueTypes=%s&numberOfValues=%d&languageKey=de",
                 urlEncode(subscriptions),
                 urlEncode(measuredTimeFromUtc),
                 urlEncode(measuredTimeToUtc),
@@ -181,7 +215,7 @@ public class AIRequest {
         return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
-    private static LocalDateTime[] getDates() {
+    public static LocalDateTime[] getDates() {
         LocalDateTime date = LocalDateTime.now();
         LocalDateTime dateMinusOneDay = date.minusDays(1);
 
