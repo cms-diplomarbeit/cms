@@ -21,17 +21,23 @@ import java.util.Scanner;
 
 public class AIRequest {
     private static final Scanner scanner = new Scanner(System.in);
+    private static final String username = "ai-haus@cms-building.at";
+    private static final String tokenUrl = "https://auth.cms-building.at/realms/Cms/protocol/openid-connect/token";
+    private static final String url = "https://cms-server.cms-building.at/";
+    private static final String clientId = "CMS";
 
     public static void Choice(int number) {
         try {
             Choices choice = Choices.values()[number-1];
-
+            System.out.print("Enter your password for " + username + ": ");
+            String password = scanner.nextLine();
+            String accessToken = AuthenticationClient.fetchOAuth2Token(clientId, tokenUrl, username, password);
             if (choice == Choices.DailyCall) {
-                DailyCall();
+                DailyCall(accessToken);
             } else if (choice == Choices.Comparison) {
                 Comparison();
             } else if (choice == Choices.StatusPerTag) {
-                StatusPerTag();
+                StatusPerTag(accessToken);
             } else {
                 throw new ChoiceNotFoundException("Choice not found");
             }
@@ -41,7 +47,7 @@ public class AIRequest {
     }
 
 
-    public static void DailyCall() {
+    public static void DailyCall(String accessToken) {
         System.out.print("Please enter the SubscriptionIDs: ");
         String subscriptionIDs = scanner.nextLine();
         var dates = getDates();
@@ -49,7 +55,7 @@ public class AIRequest {
         int numberOfValues = 1400;
 
         var uri = URIBuilder(subscriptionIDs, dates[1].toString(), dates[0].toString(), valueTypes, numberOfValues);
-        String dailyPrompt = Prompts.getDailyCallPrompt(uri);
+        String dailyPrompt = Prompts.getDailyCallPrompt(uri, accessToken);
         try {
             String answer = KICall(dailyPrompt);
             System.out.println(answer);
@@ -83,8 +89,44 @@ public class AIRequest {
         }
     }
 
-    public static void StatusPerTag() {
+    public static void StatusPerTag(String accessToken) {
+        String endpoint = "https://cms-server.cms-building.at/tagtosubscriptions";
+        String uriString = endpoint + "?languageKey=de";
+        URI uri = URI.create(uriString);
 
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(uri)
+                .GET()
+                .header("Accept", "application/json")
+                .header("Authorization", "Bearer " + accessToken)
+                .build();
+
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if(response.statusCode() != 200) {
+                System.err.println("Fehler beim Aufruf "+ response.statusCode());
+                System.err.println(response.body());
+                return;
+            }
+
+            JSONObject jsonObject = new JSONObject(response.body());
+
+            if(jsonObject.has("translation")) {
+                System.out.println("Translation: " + jsonObject.getString("translation"));
+            }
+            if (jsonObject.has("subscriptions")) {
+                System.out.println("Subscriptions:");
+                JSONArray subs = jsonObject.getJSONArray("subscriptions");
+                for (int i = 0; i < subs.length(); i++) {
+                    System.out.println("  - " + subs.getString(i));
+                }
+            } else {
+                System.out.println("Keine Subscriptions im Response gefunden.");
+            }
+        } catch(IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
     public static String KICall(String prompt) throws IOException, InterruptedException {
@@ -135,7 +177,7 @@ public class AIRequest {
         String endpoint = "https://cms-server.cms-building.at/graphdata";
         return URI.create(endpoint + "?" + params);
     }
-    private static String urlEncode(String s) {
+    public static String urlEncode(String s) {
         return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
