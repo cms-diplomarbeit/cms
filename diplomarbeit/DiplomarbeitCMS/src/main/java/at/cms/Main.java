@@ -5,7 +5,6 @@ import java.io.IOException;
 
 public class Main {
     public static void main(String[] args) {
-
         // Only for Testpurposes
         String watchDir = "./watched";
         Monitor monitor = new Monitor(watchDir);

@@ -9,17 +9,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import io.qdrant.client.QdrantClient;
-import io.qdrant.client.QdrantGrpcClient;
-import io.qdrant.client.grpc.Points.PointStruct;
-import io.qdrant.client.grpc.Points.Vector;
-import java.util.HashMap;
-import java.util.Map;
+import org.json.JSONObject;
 
 public class Monitor {
     private final String watchDir;
@@ -28,7 +19,6 @@ public class Monitor {
     private WatchService watcher;
     private boolean isRunning = false;
     private final HttpClient httpClient;
-    private final Gson gson;
 
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
@@ -37,7 +27,6 @@ public class Monitor {
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_2)
                 .build();
-        this.gson = new Gson();
         
         try {
             Files.createDirectories(Paths.get(outputDir));
@@ -74,7 +63,8 @@ public class Monitor {
                     if (supportedExtensions.stream().anyMatch(lowercaseName::endsWith)) {
                         Path filePath = Paths.get(watchDir, filename.toString());
                         if (kind == StandardWatchEventKinds.ENTRY_CREATE || kind == StandardWatchEventKinds.ENTRY_MODIFY) {
-                            extractAndSaveText(filePath);
+                            System.out.println("Embeddings: " + extractTextAndCreateEmbeddings(filePath));
+                            extractTextAndCreateEmbeddings(filePath);
                         }
                     }
                 }
@@ -86,21 +76,23 @@ public class Monitor {
         }
     }
 
-    private void extractAndSaveText(Path filePath) {
+    private float[] extractTextAndCreateEmbeddings(Path filePath) {
         try {
             byte[] content = Files.readAllBytes(filePath);
             String text = callTikaWithRestClient(content);
+            float[] embeddings = getEmbeddings(text);
 
             String filename = filePath.getFileName().toString();
-
-            getEmbeddings(text);
 
             System.out.println("--- File processed: " + filename + " ---");
             System.out.println("Text has been extracted, embedded, and stored in Qdrant.");
             System.out.println("------------------------------");
+            
+            return embeddings;
         } catch (Exception e) {
             System.err.println("Error processing " + filePath + ": " + e.getMessage());
             e.printStackTrace();
+            return null;
         }
     }
 
@@ -125,22 +117,26 @@ public class Monitor {
     private float[] getEmbeddings(String text) throws IOException, InterruptedException {
         String embeddingServerUrl = "http://file1.lan.elite-zettl.at:11434/api/embed";
         
-        JsonObject requestBody = new JsonObject();
-        requestBody.addProperty("model", "mxbai-embed-large");
-        requestBody.addProperty("input", text);
+        JSONObject requestBody = new JSONObject();
+        requestBody.put("model", "mxbai-embed-large");
+        requestBody.put("input", text);
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(embeddingServerUrl))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(requestBody)))
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
-            JsonObject jsonResponse = gson.fromJson(response.body(), JsonObject.class);
-            // Die Embedding-API gibt die Vektoren direkt im "embedding" Feld zurück
-            return gson.fromJson(jsonResponse.getAsJsonObject("embedding"), float[].class);
+            JSONObject jsonResponse = new JSONObject(response.body());
+            var embeddingArray = jsonResponse.getJSONArray("embedding");
+            float[] embeddings = new float[embeddingArray.length()];
+            for (int i = 0; i < embeddingArray.length(); i++) {
+                embeddings[i] = embeddingArray.getFloat(i);
+            }
+            return embeddings;
         } else {
             throw new IOException("Embedding API Error: " + response.statusCode() + " - " + response.body());
         }
