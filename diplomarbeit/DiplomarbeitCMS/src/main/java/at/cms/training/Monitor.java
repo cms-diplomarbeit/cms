@@ -1,6 +1,7 @@
 package at.cms.training;
 
 import at.cms.ingestion.SampleTextSplitter;
+import at.cms.training.db.Repository;
 // Filewathcher, Tika & Embedding
 import at.cms.training.dto.EmbeddingDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,8 +20,9 @@ import java.util.logging.Logger;
 import java.util.logging.Level;
 import org.json.JSONObject;
 import java.io.File;
-import java.util.Date;
+
 import java.util.ArrayList;
+import java.sql.*;
 
 /* 
 // Initialize the Qdrant
@@ -77,7 +79,7 @@ public class Monitor {
         }, 0, 5, TimeUnit.MINUTES);
     }
 
-    // Überwachung - Directory Observer Pattern mit Stream Processing
+    // Directory Observer with Stream Processing
     private void checkFiles() {
         try {
             Files.list(Paths.get(watchDir))
@@ -91,17 +93,62 @@ public class Monitor {
 
     private final List<String> supportedExtensions = List.of(".docx", ".pdf", ".xlsx", ".pptx", ".txt", ".md", ".csv");
 
-    // Überwachung
+    // Check and Process Files
     private void checkAndProcessFiles(Path filePath) {
         try {
             File file = filePath.toFile();
             String filename = filePath.getFileName().toString();
             byte[] content = Files.readAllBytes(filePath);
-            String currentHash = new String(java.security.MessageDigest.getInstance("SHA-256").digest(content), StandardCharsets.UTF_8);
+            String fileHash = new String(java.security.MessageDigest.getInstance("SHA-256").digest(content), StandardCharsets.UTF_8);
             
-            // Your processing logic here
-            
-        } catch (IOException | NoSuchAlgorithmException e) {
+            // Check if file hash exists in database
+            String checkHashSql = "SELECT file_Hash FROM documentValidation WHERE file_Hash = ?";
+            try (Connection conn = Repository.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(checkHashSql);
+                 ResultSet rs = stmt.executeQuery()) {
+                stmt.setString(1, fileHash);
+                
+                if (!rs.next()) {
+                    // Hash doesn't exist, insert new record
+                    String insertSql = "INSERT INTO documentValidation (file_Hash, file_Name) VALUES (?, ?)";
+                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                        insertStmt.setString(1, fileHash);
+                        insertStmt.setString(2, filename);
+                        insertStmt.executeUpdate();
+                        
+                        // Extract metadata and store in documents table
+                        JSONObject metadata = getMetadataWithTika(content);
+                        
+                        String insertDocSql = """
+                            INSERT INTO documents (
+                                id, title, content, source, author, created_at, 
+                                language, word_count, last_updated
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """;
+                        
+                        try (PreparedStatement docStmt = conn.prepareStatement(insertDocSql)) {
+                            docStmt.setString(1, UUID.randomUUID().toString());
+                            docStmt.setString(2, metadata.optString("title", filename));
+                            docStmt.setString(3, metadata.getString("content"));
+                            docStmt.setString(4, filePath.toString());
+                            docStmt.setString(5, metadata.optString("author", "Unknown"));
+                            // Use meta:creation-date if available, otherwise file's last modified
+                            String createdDate = metadata.optString("created", 
+                                new java.sql.Timestamp(file.lastModified()).toString());
+                            docStmt.setTimestamp(6, java.sql.Timestamp.valueOf(createdDate));
+                            docStmt.setString(7, metadata.optString("language", "Unknown"));
+                            docStmt.setInt(8, metadata.optInt("length", content.length));
+                            docStmt.setTimestamp(9, new java.sql.Timestamp(System.currentTimeMillis()));
+                            docStmt.executeUpdate();
+                        }
+                        
+                        log.info("New document processed: " + filename);
+                    }
+                } else {
+                    log.fine("Document already processed: " + filename);
+                }
+            }
+        } catch (Exception e) {
             log.log(Level.SEVERE, "Error processing file: " + e.getMessage(), e);
         }
     }
@@ -121,25 +168,63 @@ public class Monitor {
     }
 
     // TIKA 
-    private String getMetadataWithTika(final byte[] content) throws IOException, InterruptedException {
-        String tikaServerAddress = "http://dev1.lan.elite-zettl.at:9998/tika";
+    private JSONObject getMetadataWithTika(final byte[] content) throws IOException, InterruptedException {
+        String tikaServerAddress = "http://dev1.lan.elite-zettl.at:9998/rmeta";
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(tikaServerAddress))
                 .header("Content-Type", "application/octet-stream")
-                .header("Accept", "text/plain")
+                .header("Accept", "application/json")
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(content))
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
-            return response.body();
+            // Parse the JSON array response
+            JSONObject[] metadataArray = objectMapper.readValue(response.body(), JSONObject[].class);
+            
+            // Create a combined metadata object
+            JSONObject combinedMetadata = new JSONObject();
+            
+            // Process each metadata object in the array
+            for (JSONObject metadata : metadataArray) {
+                // Get content and clean XML tags if present
+                if (metadata.has("X-TIKA:content")) {
+                    String rawContent = metadata.getString("X-TIKA:content");
+                    // Remove XML tags
+                    String cleanContent = rawContent.replaceAll("<[^>]+>", "").trim();
+                    combinedMetadata.put("content", cleanContent);
+                }
+                
+                // Get language if present
+                if (metadata.has("dc:language")) {
+                    combinedMetadata.put("language", metadata.getString("dc:language"));
+                }
+                
+                // Get content length if present
+                if (metadata.has("Content-Length")) {
+                    combinedMetadata.put("length", metadata.getInt("Content-Length"));
+                }
+                
+                // Copy other useful metadata
+                if (metadata.has("dc:title")) {
+                    combinedMetadata.put("title", metadata.getString("dc:title"));
+                }
+                if (metadata.has("dc:creator")) {
+                    combinedMetadata.put("author", metadata.getString("dc:creator"));
+                }
+                if (metadata.has("meta:creation-date")) {
+                    combinedMetadata.put("created", metadata.getString("meta:creation-date"));
+                }
+            }
+            
+            log.fine("Extracted metadata: " + combinedMetadata.toString());
+            return combinedMetadata;
         } else {
             throw new IOException("HTTP Error: " + response.statusCode());
         }
     }
 
-    // Vektorisierung
     private EmbeddingDto getEmbeddings(List<String> chunks) throws IOException, InterruptedException {
         String embeddingServerUrl = "http://file1.lan.elite-zettl.at:11434/api/embed";
         List<float[]> allEmbeddings = new ArrayList<>();
