@@ -26,11 +26,6 @@
             <version>20220924</version>
         </dependency>
         <dependency>
-            <groupId>io.qdrant</groupId>
-            <artifactId>client</artifactId>
-            <version>1.14.0</version>
-        </dependency>
-        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.15.2</version>
@@ -41,6 +36,20 @@
         <artifactId>commons-lang3</artifactId>
         <version>3.9</version>
       </dependency>
+
+        <!-- Qdrant Client -->
+        <dependency>
+            <groupId>io.qdrant</groupId>
+            <artifactId>client</artifactId>
+            <version>1.14.0</version>
+        </dependency>
+        
+        <!-- SQLite -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.45.1.0</version>
+        </dependency>
     </dependencies>
 
     <properties>

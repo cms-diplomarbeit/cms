@@ -4,6 +4,7 @@ import at.cms.ingestion.SampleTextSplitter;
 // Filewathcher, Tika & Embedding
 import at.cms.training.dto.EmbeddingDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.io.IOException;
@@ -59,19 +60,7 @@ public class Monitor {
     private final ObjectMapper objectMapper;
     // QdrantClient client = new QdrantClient(QdrantGrpcClient.newBuilder("localhost", 6334, false).build());
 
-    private HttpResponse.BodyHandler<EmbeddingDto> jsonBodyHandler() {
-        return _ -> HttpResponse.BodySubscribers.mapping(
-            HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
-            body -> {
-                try {
-                    return objectMapper.readValue(body, EmbeddingDto.class);
-                } catch (Exception e) {
-                    throw new RuntimeException("Error parsing JSON", e);
-                }
-            }
-        );
-    }
-
+    // Observer
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
         this.httpClient = HttpClient.newBuilder()
@@ -88,7 +77,7 @@ public class Monitor {
         }, 0, 5, TimeUnit.MINUTES);
     }
 
-    // Überwachung
+    // Überwachung - Directory Observer Pattern mit Stream Processing
     private void checkFiles() {
         try {
             Files.list(Paths.get(watchDir))
@@ -105,25 +94,34 @@ public class Monitor {
     // Überwachung
     private void checkAndProcessFiles(Path filePath) {
         try {
-            String filename = filePath.getFileName().toString();
-
             File file = filePath.toFile();
-            long ts = file.lastModified();
-            Date date = new Date(ts);
-            
+            String filename = filePath.getFileName().toString();
             byte[] content = Files.readAllBytes(filePath);
-            String text = callTikaWithRestClient(content);
-            List<String> chunks = new SampleTextSplitter().split(text);
-            EmbeddingDto embeddings = getEmbeddings(chunks);
-            System.out.println(embeddings);
-            log.info("--- File processed: " + filename + " - Text has been extracted and embedded");
-            } catch (Exception e) {
-            log.log(Level.SEVERE, "Error processing " + filePath + ": " + e.getMessage(), e);
+            String currentHash = new String(java.security.MessageDigest.getInstance("SHA-256").digest(content), StandardCharsets.UTF_8);
+            
+            // Your processing logic here
+            
+        } catch (IOException | NoSuchAlgorithmException e) {
+            log.log(Level.SEVERE, "Error processing file: " + e.getMessage(), e);
         }
     }
 
+    private void updateDatabases(String filename, long timestamp, EmbeddingDto embeddings) throws IOException {
+        // TODO: Update both SQLite metadata and Qdrant vectors
+        // 1. Update/insert metadata in SQLite (filename, timestamp)
+        // 2. Update/insert vectors in Qdrant
+    }
+
+    private void deleteFromSqlite(String filename) {
+        // TODO: Delete file metadata from SQLite
+    }
+
+    private void deleteFromQdrant(String filename) {
+        // TODO: Delete vectors from Qdrant
+    }
+
     // TIKA 
-    private String callTikaWithRestClient(final byte[] content) throws IOException, InterruptedException {
+    private String getMetadataWithTika(final byte[] content) throws IOException, InterruptedException {
         String tikaServerAddress = "http://dev1.lan.elite-zettl.at:9998/tika";
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(tikaServerAddress))
@@ -175,5 +173,19 @@ public class Monitor {
         result.setEmbeddings(allEmbeddings.toArray(new float[allEmbeddings.size()][]));
         result.setChunk_index(chunk_index);
         return result;
+    }
+
+    // JSON Body Handler von den Embeddings
+    private HttpResponse.BodyHandler<EmbeddingDto> jsonBodyHandler() {
+        return _ -> HttpResponse.BodySubscribers.mapping(
+            HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
+            body -> {
+                try {
+                    return objectMapper.readValue(body, EmbeddingDto.class);
+                } catch (Exception e) {
+                    throw new RuntimeException("Error parsing JSON", e);
+                }
+            }
+        );
     }
 }
