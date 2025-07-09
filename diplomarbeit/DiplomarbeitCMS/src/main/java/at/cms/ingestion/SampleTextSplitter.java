@@ -1,7 +1,7 @@
 package at.cms.ingestion;
 
 import at.cms.interfaces.Contracts;
-
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -18,4 +18,16 @@ public class SampleTextSplitter implements Contracts.TextSplitter {
         }
         return chunks;
     }
+
+    public List<String> chunkText(String text, int maxWords, int overlap) {
+        List<String> chunks = new ArrayList<>();
+        String[] words = text.split("\\s+");
+        for (int i = 0; i < words.length; i += maxWords - overlap) {
+            int end = Math.min(i + maxWords, words.length);
+            String chunk = String.join(" ", Arrays.copyOfRange(words, i, end));
+            chunks.add(chunk);
+        }
+        return chunks;
+    }
+    
 }
