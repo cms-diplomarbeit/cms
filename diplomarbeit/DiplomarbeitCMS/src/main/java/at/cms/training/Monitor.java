@@ -1,5 +1,7 @@
 package at.cms.training;
 
+import at.cms.api.EmbeddingService;
+import at.cms.api.QdrantService;
 import at.cms.api.TikaService;
 import at.cms.ingestion.SampleTextSplitter;
 import at.cms.training.db.Repository;
@@ -60,14 +62,16 @@ public class Monitor {
     private final String watchDir;
     private final Map<String, FileInfo> trackedFiles;
     private final TikaService tikaService;
-    private final QdrantClient client = new QdrantClient(
-            QdrantGrpcClient.newBuilder("localhost", 6334, false).build());
+    private final EmbeddingService embeddingService;
 
     // Observer
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
         this.trackedFiles = new ConcurrentHashMap<>();
         this.tikaService = new TikaService("http://dev1.lan.elite-zettl.at:9998");
+        this.embeddingService = new EmbeddingService("http://file1.lan.elite-zettl.at:11434");
+
+
 
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
             try {
@@ -247,7 +251,9 @@ public class Monitor {
         }
 
         // Create embeddings for the chunks
-        EmbeddingDto embeddings = tikaService.getEmbeddings(chunks);
+        EmbeddingDto embeddings = embeddingService.getEmbeddings(chunks);
+
+        // TODO: Update qdrant Storage with vectorised chunks
 
         
         log.info("New document processed: " + filePath.getFileName());

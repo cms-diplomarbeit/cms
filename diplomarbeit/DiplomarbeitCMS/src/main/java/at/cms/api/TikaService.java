@@ -17,12 +17,10 @@ public class TikaService {
     private static final Logger log = Logger.getLogger(TikaService.class.getName());
     private final String tikaServerAddress;
     private final HttpClient client;
-    private final ObjectMapper objectMapper;
 
     public TikaService(String tikaServerAddress) {
         this.tikaServerAddress = tikaServerAddress;
         this.client = HttpClient.newHttpClient();
-        this.objectMapper = new ObjectMapper();
     }
 
     public String getServerAddress() {
@@ -99,55 +97,4 @@ public class TikaService {
             throw new IOException("HTTP Error: " + response.statusCode() + "\nResponse: " + response.body());
         }
     }
-
-    public EmbeddingDto getEmbeddings(List<String> chunks) throws IOException, InterruptedException {
-        String embeddingServerUrl = "http://file1.lan.elite-zettl.at:11434/api/embed";
-        List<float[]> allEmbeddings = new ArrayList<>();
-        int chunk_index = 0;
-        
-        for (String chunk : chunks) {
-            chunk_index++;
-            JSONObject requestBody = new JSONObject();
-            requestBody.put("model", "mxbai-embed-large");
-            requestBody.put("input", chunk);
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(embeddingServerUrl))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
-                    .build();
-
-            HttpResponse<EmbeddingDto> response = client.send(request, jsonBodyHandler());
-
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                float[][] responseEmbeddings = response.body().getEmbeddings();
-                if (responseEmbeddings != null && responseEmbeddings.length > 0) {
-                    allEmbeddings.add(responseEmbeddings[0]);
-                }
-            } else {
-                throw new IOException("Embedding API Error: " + response.statusCode());
-            }
-        }
-        
-        EmbeddingDto result = new EmbeddingDto();
-        result.setEmbeddings(allEmbeddings.toArray(new float[allEmbeddings.size()][]));
-        result.setChunk_index(chunk_index);
-        return result;
-    }
-
-    // JSON Body Handler von den Embeddings
-    private HttpResponse.BodyHandler<EmbeddingDto> jsonBodyHandler() {
-        return _ -> HttpResponse.BodySubscribers.mapping(
-            HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
-            body -> {
-                try {
-                    return objectMapper.readValue(body, EmbeddingDto.class);
-                } catch (Exception e) {
-                    throw new RuntimeException("Error parsing JSON", e);
-                }
-            }
-        );
-    }
-
-    
 } 
