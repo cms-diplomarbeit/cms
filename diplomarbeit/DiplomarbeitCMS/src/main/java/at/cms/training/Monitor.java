@@ -1,30 +1,30 @@
 package at.cms.training;
 
+import at.cms.api.TikaService;
 import at.cms.ingestion.SampleTextSplitter;
 import at.cms.training.db.Repository;
+import at.cms.training.objects.FileInfo;
 // Filewathcher, Tika & Embedding
 import at.cms.training.dto.EmbeddingDto;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.io.IOException;
 import java.nio.file.*;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.List;
-import java.nio.charset.StandardCharsets;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 import org.json.JSONObject;
 import java.io.File;
 
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.sql.*;
+import java.util.Set;
+import java.util.Collections;
+import java.nio.charset.StandardCharsets;
 
-/* 
 // Initialize the Qdrant
 import io.qdrant.client.QdrantClient;
 import io.qdrant.client.QdrantGrpcClient;
@@ -45,7 +45,7 @@ import static io.qdrant.client.ConditionFactory.matchKeyword;
 import io.qdrant.client.grpc.Points.ScoredPoint;
 import io.qdrant.client.grpc.Points.QueryPoints;
 import static io.qdrant.client.QueryFactory.nearest;
-*/
+
 
 /**
  * Monitor class that watches a directory for document changes and processes them.
@@ -58,17 +58,16 @@ import static io.qdrant.client.QueryFactory.nearest;
 public class Monitor {
     private static final Logger log = Logger.getLogger(Monitor.class.getName());
     private final String watchDir;
-    private final HttpClient httpClient;
-    private final ObjectMapper objectMapper;
-    // QdrantClient client = new QdrantClient(QdrantGrpcClient.newBuilder("localhost", 6334, false).build());
+    private final Map<String, FileInfo> trackedFiles;
+    private final TikaService tikaService;
+    private final QdrantClient client = new QdrantClient(
+            QdrantGrpcClient.newBuilder("localhost", 6334, false).build());
 
     // Observer
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
-        this.httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_2)
-                .build();
-        this.objectMapper = new ObjectMapper();
+        this.trackedFiles = new ConcurrentHashMap<>();
+        this.tikaService = new TikaService("http://dev1.lan.elite-zettl.at:9998");
 
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
             try {
@@ -82,10 +81,17 @@ public class Monitor {
     // Directory Observer with Stream Processing
     private void checkFiles() {
         try {
+            Set<String> currentFiles = new java.util.HashSet<>();
+            
             Files.list(Paths.get(watchDir))
                 .filter(path -> supportedExtensions.stream()
                     .anyMatch(ext -> path.toString().toLowerCase().endsWith(ext)))
-                .forEach(this::checkAndProcessFiles);
+                .forEach(path -> {
+                    currentFiles.add(path.toString());
+                    processFile(path);
+                });
+                
+            cleanupDeletedFiles(currentFiles);
         } catch (IOException e) {
             log.log(Level.SEVERE, "Error checking directory: " + e.getMessage(), e);
         }
@@ -93,63 +99,198 @@ public class Monitor {
 
     private final List<String> supportedExtensions = List.of(".docx", ".pdf", ".xlsx", ".pptx", ".txt", ".md", ".csv");
 
-    // Check and Process Files
-    private void checkAndProcessFiles(Path filePath) {
+    private void processFile(Path filePath) {
         try {
             File file = filePath.toFile();
-            String filename = filePath.getFileName().toString();
-            byte[] content = Files.readAllBytes(filePath);
-            String fileHash = new String(java.security.MessageDigest.getInstance("SHA-256").digest(content), StandardCharsets.UTF_8);
+            String pathStr = filePath.toString();
             
-            // Check if file hash exists in database
-            String checkHashSql = "SELECT file_Hash FROM documentValidation WHERE file_Hash = ?";
-            try (Connection conn = Repository.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(checkHashSql);
-                 ResultSet rs = stmt.executeQuery()) {
-                stmt.setString(1, fileHash);
-                
-                if (!rs.next()) {
-                    // Hash doesn't exist, insert new record
-                    String insertSql = "INSERT INTO documentValidation (file_Hash, file_Name) VALUES (?, ?)";
-                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
-                        insertStmt.setString(1, fileHash);
-                        insertStmt.setString(2, filename);
-                        insertStmt.executeUpdate();
-                        
-                        // Extract metadata and store in documents table
-                        JSONObject metadata = getMetadataWithTika(content);
-                        
-                        String insertDocSql = """
-                            INSERT INTO documents (
-                                id, title, content, source, author, created_at, 
-                                language, word_count, last_updated
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """;
-                        
-                        try (PreparedStatement docStmt = conn.prepareStatement(insertDocSql)) {
-                            docStmt.setString(1, UUID.randomUUID().toString());
-                            docStmt.setString(2, metadata.optString("title", filename));
-                            docStmt.setString(3, metadata.getString("content"));
-                            docStmt.setString(4, filePath.toString());
-                            docStmt.setString(5, metadata.optString("author", "Unknown"));
-                            // Use meta:creation-date if available, otherwise file's last modified
-                            String createdDate = metadata.optString("created", 
-                                new java.sql.Timestamp(file.lastModified()).toString());
-                            docStmt.setTimestamp(6, java.sql.Timestamp.valueOf(createdDate));
-                            docStmt.setString(7, metadata.optString("language", "Unknown"));
-                            docStmt.setInt(8, metadata.optInt("length", content.length));
-                            docStmt.setTimestamp(9, new java.sql.Timestamp(System.currentTimeMillis()));
-                            docStmt.executeUpdate();
-                        }
-                        
-                        log.info("New document processed: " + filename);
-                    }
-                } else {
-                    log.fine("Document already processed: " + filename);
+            FileInfo existingFile = trackedFiles.get(pathStr);
+            if (existingFile != null) {
+                if (file.lastModified() > existingFile.lastModified) {
+                    byte[] content = Files.readAllBytes(filePath);
+                    updateFileMetadata(filePath, content);
+                    existingFile.updateLastModified(file.lastModified());
                 }
+            } else {
+                byte[] byteFile = Files.readAllBytes(filePath);
+                FileInfo newFile = new FileInfo(pathStr, file);
+                trackedFiles.put(pathStr, newFile);
+                processNewFile(filePath, byteFile);
             }
         } catch (Exception e) {
-            log.log(Level.SEVERE, "Error processing file: " + e.getMessage(), e);
+            log.log(Level.SEVERE, "Error processing file: " + filePath, e);
+        }
+    }
+
+    private void processNewFile(Path filePath, byte[] content) throws Exception {
+        try (Connection conn = Repository.getConnection()) {
+            try {
+                insertDocumentMetadata(conn, filePath, content);
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        }
+    }
+
+    private void updateFileMetadata(Path filePath, byte[] content) throws Exception {
+        try (Connection conn = Repository.getConnection()) {
+            try {
+                // Update document metadata
+                updateDocumentMetadata(conn, filePath, content);
+                conn.commit();
+                log.info("Document updated: " + filePath.getFileName());
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        }
+    }
+
+    private void cleanupDeletedFiles(Set<String> currentFiles) {
+        List<String> filesToDelete = new ArrayList<>();
+        
+        // Check which tracked files no longer exist in currentFiles
+        trackedFiles.keySet().forEach(path -> {
+            if (!currentFiles.contains(path)) {
+                filesToDelete.add(path);
+            }
+        });
+
+        if (filesToDelete.isEmpty()) {
+            return;
+        }
+
+        log.info("Cleaning up " + filesToDelete.size() + " deleted files");
+
+        try (Connection conn = Repository.getConnection()) {
+            try {
+                // Delete from documents table
+                String deleteDocsSql = "DELETE FROM documents WHERE source IN (" +
+                                     String.join(",", Collections.nCopies(filesToDelete.size(), "?")) + ")";
+                try (PreparedStatement stmt = conn.prepareStatement(deleteDocsSql)) {
+                    for (int i = 0; i < filesToDelete.size(); i++) {
+                        stmt.setString(i + 1, filesToDelete.get(i));
+                    }
+                    stmt.executeUpdate();
+                }
+
+                // Remove from tracking
+                filesToDelete.forEach(path -> {
+                    trackedFiles.remove(path);
+                    log.info("Removed tracking for deleted file: " + path);
+                });
+
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                log.log(Level.SEVERE, "Error cleaning up deleted files", e);
+            }
+        } catch (SQLException e) {
+            log.log(Level.SEVERE, "Database error during cleanup", e);
+        }
+    }
+
+    private void insertDocumentMetadata(Connection conn, Path filePath, byte[] byteFile) throws Exception {
+        File file = filePath.toFile();
+        String filename = filePath.getFileName().toString();
+        JSONObject metadata = tikaService.getMetadataWithTika(byteFile);
+        String title = metadata.optString("title", filename);
+
+        if (documentExists(conn, title)) {
+            log.info("Document '" + title + "' already exists.");
+            return;
+        }
+
+        String documentId = UUID.randomUUID().toString();
+        String extractedText = tikaService.extractContent(byteFile);
+        
+        String insertDocSql = """
+            INSERT INTO documents (
+                id, title, content, source, author, created_at, 
+                language, word_count, last_updated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """;
+        
+        try (PreparedStatement docStmt = conn.prepareStatement(insertDocSql)) {
+            docStmt.setString(1, documentId);
+            docStmt.setString(2, title);
+            docStmt.setBytes(3, extractedText.getBytes(StandardCharsets.UTF_8));  // Store extracted text as BLOB
+            docStmt.setString(4, filePath.toString());
+            docStmt.setString(5, metadata.optString("author", "Unknown"));
+            String createdDate = metadata.optString("created", new java.sql.Timestamp(file.lastModified()).toString());
+            docStmt.setTimestamp(6, java.sql.Timestamp.valueOf(createdDate));
+            docStmt.setString(7, metadata.optString("language", "Unknown"));
+            docStmt.setInt(8, extractedText.length());
+            docStmt.setTimestamp(9, new java.sql.Timestamp(System.currentTimeMillis()));
+            docStmt.executeUpdate();
+        }
+
+        // Create and store chunks using extracted text
+        SampleTextSplitter splitter = new SampleTextSplitter();
+        List<String> chunks = splitter.split(extractedText);
+        
+        String insertChunkSql = """
+            INSERT INTO chunks (id, document_id, content, chunk_index)
+            VALUES (?, ?, ?, ?)
+        """;
+        
+        try (PreparedStatement chunkStmt = conn.prepareStatement(insertChunkSql)) {
+            for (int i = 0; i < chunks.size(); i++) {
+                chunkStmt.setString(1, UUID.randomUUID().toString());
+                chunkStmt.setString(2, documentId);
+                chunkStmt.setString(3, chunks.get(i));
+                chunkStmt.setInt(4, i);
+                chunkStmt.executeUpdate();
+            }
+        }
+
+        // Create embeddings for the chunks
+        EmbeddingDto embeddings = tikaService.getEmbeddings(chunks);
+
+        
+        log.info("New document processed: " + filePath.getFileName());
+    }
+
+    private boolean documentExists(Connection conn, String title) throws SQLException {
+        String checkSql = "SELECT COUNT(*) FROM documents WHERE title = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(checkSql)) {
+            stmt.setString(1, title);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1) > 0;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void updateDocumentMetadata(Connection conn, Path filePath, byte[] content) throws Exception {
+        File file = filePath.toFile();
+        String filename = filePath.getFileName().toString();
+        JSONObject metadata = tikaService.getMetadataWithTika(content);
+        String extractedText = tikaService.extractContent(content);
+        
+        String updateDocSql = """
+            UPDATE documents SET 
+                title = ?, content = ?, author = ?, created_at = ?,
+                language = ?, word_count = ?, last_updated = ?
+            WHERE source = ?
+        """;
+        
+        try (PreparedStatement docStmt = conn.prepareStatement(updateDocSql)) {
+            docStmt.setString(1, metadata.optString("title", filename));
+            docStmt.setBytes(2, extractedText.getBytes(StandardCharsets.UTF_8)); // Store extracted text as BLOB
+            docStmt.setString(3, metadata.optString("author", "Unknown"));
+            String createdDate = metadata.optString("created", 
+                new java.sql.Timestamp(file.lastModified()).toString());
+            docStmt.setTimestamp(4, java.sql.Timestamp.valueOf(createdDate));
+            docStmt.setString(5, metadata.optString("language", "Unknown"));
+            docStmt.setInt(6, extractedText.length());
+            docStmt.setTimestamp(7, new java.sql.Timestamp(System.currentTimeMillis()));
+            docStmt.setString(8, filePath.toString());
+            docStmt.executeUpdate();
         }
     }
 
@@ -165,112 +306,5 @@ public class Monitor {
 
     private void deleteFromQdrant(String filename) {
         // TODO: Delete vectors from Qdrant
-    }
-
-    // TIKA 
-    private JSONObject getMetadataWithTika(final byte[] content) throws IOException, InterruptedException {
-        String tikaServerAddress = "http://dev1.lan.elite-zettl.at:9998/rmeta";
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(tikaServerAddress))
-                .header("Content-Type", "application/octet-stream")
-                .header("Accept", "application/json")
-                .PUT(HttpRequest.BodyPublishers.ofByteArray(content))
-                .build();
-
-        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() >= 200 && response.statusCode() < 300) {
-            // Parse the JSON array response
-            JSONObject[] metadataArray = objectMapper.readValue(response.body(), JSONObject[].class);
-            
-            // Create a combined metadata object
-            JSONObject combinedMetadata = new JSONObject();
-            
-            // Process each metadata object in the array
-            for (JSONObject metadata : metadataArray) {
-                // Get content and clean XML tags if present
-                if (metadata.has("X-TIKA:content")) {
-                    String rawContent = metadata.getString("X-TIKA:content");
-                    // Remove XML tags
-                    String cleanContent = rawContent.replaceAll("<[^>]+>", "").trim();
-                    combinedMetadata.put("content", cleanContent);
-                }
-                
-                // Get language if present
-                if (metadata.has("dc:language")) {
-                    combinedMetadata.put("language", metadata.getString("dc:language"));
-                }
-                
-                // Get content length if present
-                if (metadata.has("Content-Length")) {
-                    combinedMetadata.put("length", metadata.getInt("Content-Length"));
-                }
-                
-                // Copy other useful metadata
-                if (metadata.has("dc:title")) {
-                    combinedMetadata.put("title", metadata.getString("dc:title"));
-                }
-                if (metadata.has("dc:creator")) {
-                    combinedMetadata.put("author", metadata.getString("dc:creator"));
-                }
-                if (metadata.has("meta:creation-date")) {
-                    combinedMetadata.put("created", metadata.getString("meta:creation-date"));
-                }
-            }
-            
-            log.fine("Extracted metadata: " + combinedMetadata.toString());
-            return combinedMetadata;
-        } else {
-            throw new IOException("HTTP Error: " + response.statusCode());
-        }
-    }
-
-    private EmbeddingDto getEmbeddings(List<String> chunks) throws IOException, InterruptedException {
-        String embeddingServerUrl = "http://file1.lan.elite-zettl.at:11434/api/embed";
-        List<float[]> allEmbeddings = new ArrayList<>();
-        int chunk_index = 0;
-        
-        for (String chunk : chunks) {
-            chunk_index++;
-            JSONObject requestBody = new JSONObject();
-            requestBody.put("model", "mxbai-embed-large");
-            requestBody.put("input", chunk);
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(embeddingServerUrl))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
-                    .build();
-
-            HttpResponse<EmbeddingDto> response = httpClient.send(request, jsonBodyHandler());
-
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                float[][] responseEmbeddings = response.body().getEmbeddings();
-                if (responseEmbeddings != null && responseEmbeddings.length > 0) {
-                    allEmbeddings.add(responseEmbeddings[0]);
-                }
-            } else {
-                throw new IOException("Embedding API Error: " + response.statusCode());
-            }
-        }
-        
-        EmbeddingDto result = new EmbeddingDto();
-        result.setEmbeddings(allEmbeddings.toArray(new float[allEmbeddings.size()][]));
-        result.setChunk_index(chunk_index);
-        return result;
-    }
-
-    // JSON Body Handler von den Embeddings
-    private HttpResponse.BodyHandler<EmbeddingDto> jsonBodyHandler() {
-        return _ -> HttpResponse.BodySubscribers.mapping(
-            HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
-            body -> {
-                try {
-                    return objectMapper.readValue(body, EmbeddingDto.class);
-                } catch (Exception e) {
-                    throw new RuntimeException("Error parsing JSON", e);
-                }
-            }
-        );
     }
 }

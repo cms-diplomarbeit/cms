@@ -6,6 +6,7 @@ public class EmbeddingDto {
     private long total_duration;
     private long load_duration;
     private int prompt_eval_count;
+    private int chunk_index;
 
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
@@ -21,4 +22,7 @@ public class EmbeddingDto {
 
     public int getPrompt_eval_count() { return prompt_eval_count; }
     public void setPrompt_eval_count(int promptEvalCount) { this.prompt_eval_count = promptEvalCount; }
+
+    public int getChunk_index() { return chunk_index; }
+    public void setChunk_index(int chunk_index) { this.chunk_index = chunk_index; }
 } 
