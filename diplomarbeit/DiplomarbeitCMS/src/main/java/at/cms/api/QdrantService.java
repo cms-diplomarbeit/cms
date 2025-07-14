@@ -1,6 +1,5 @@
 package at.cms.api;
 
-import at.cms.training.dto.EmbeddingDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -14,7 +13,7 @@ public class QdrantService {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public List<String> search(float[] vector) throws IOException, InterruptedException {
+    public List<String> search_Document_Chunks(float[] vector) throws IOException, InterruptedException {
         var requestBody = Map.of("vector", vector, "top", 3);
         var req = HttpRequest.newBuilder()
                 .uri(URI.create(qdrant_Server_URL + "/collections/knowledge/points/search"))
