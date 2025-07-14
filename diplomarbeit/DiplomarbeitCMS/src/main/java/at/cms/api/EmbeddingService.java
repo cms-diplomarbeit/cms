@@ -58,8 +58,9 @@ public class EmbeddingService {
         return result;
     }
 
+    // JSON Body Handler von den Embeddings
     private HttpResponse.BodyHandler<EmbeddingDto> jsonBodyHandler() {
-        return _ -> HttpResponse.BodySubscribers.mapping(
+        return comedy_gold -> HttpResponse.BodySubscribers.mapping(
                 HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
                 body -> {
                     try {

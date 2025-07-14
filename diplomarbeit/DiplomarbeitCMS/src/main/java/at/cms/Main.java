@@ -5,9 +5,13 @@ import at.cms.processing.DataProcessor;
 import at.cms.processing.Vectorizer;
 import at.cms.training.db.Repository;
 import at.cms.training.Monitor;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+@SpringBootApplication
 public class Main {
     public static void main(String[] args) {
+        SpringApplication.run(Main.class, args);
         Repository.connect();
         
         // Check if running in vectorizer mode
