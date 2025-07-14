@@ -1,6 +1,5 @@
 package at.cms.api;
 
-import at.cms.training.dto.EmbeddingDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -10,17 +9,12 @@ import java.net.http.*;
 import java.util.*;
 
 public class QdrantService {
-    private final String qdrant_Server_URL = "http://file1.lan.elite-zettl.at:6334";
-
+    private final String qdrant_Server_URL = "http://file1.lan.elite-zettl.at:6333";
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
     public List<String> search(float[] vector) throws IOException, InterruptedException {
-        var requestBody = Map.of(
-                "vector", vector,
-                "top", 3
-        );
-
+        var requestBody = Map.of("vector", vector, "top", 3);
         var req = HttpRequest.newBuilder()
                 .uri(URI.create(qdrant_Server_URL + "/collections/knowledge/points/search"))
                 .header("Content-Type", "application/json")
@@ -37,52 +31,39 @@ public class QdrantService {
         return results;
     }
 
-    public void createCollectionAndAddVectors(int id, String documentID, float[] vectors, EmbeddingDto metaData) throws IOException, InterruptedException {
-        createCollection(documentID, vectors.length);
-        addVectorPoint(documentID, id, vectors, documentID, metaData.getChunk_index());
-    }
-
-    private void createCollection(String collectionName, int vectorSize) throws IOException, InterruptedException {
-        var collectionConfig = Map.of(
-                "vectors", Map.of(
-                        "size", vectorSize,
-                        "distance", "Dot"
-                )
-        );
+    public void upsertVector(String collectionName, String pointId, float[] vector, Map<String, Object> payload) throws IOException, InterruptedException {
+        var point = Map.of("id", pointId, "vector", vector, "payload", payload);
+        var body = Map.of("points", List.of(point));
 
         var request = HttpRequest.newBuilder()
-                .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName))
+                .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName + "/points?wait=true"))
                 .header("Content-Type", "application/json")
-                .PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(collectionConfig)))
-                .build();
-
-        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200 && response.statusCode() != 409) {
-            throw new IOException("Failed to create collection: " + response.statusCode() + " - " + response.body());
-        }
-    }
-
-    private void addVectorPoint(String collectionName, int chunkId, float[] vectors, String documentID, int chunkIndex) throws IOException, InterruptedException {
-        var point = Map.of(
-                "id", chunkId,
-                "vector", vectors,
-                "payload", Map.of(
-                        "documentId", documentID,
-                        "chunkIndex", chunkIndex
-                )
-        );
-
-        var requestBody = Map.of("points", List.of(point));
-
-        var request = HttpRequest.newBuilder()
-                .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName + "/points"))
-                .header("Content-Type", "application/json")
-                .PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(requestBody)))
+                .PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                 .build();
 
         var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
-            throw new IOException("Failed to add vector point: " + response.statusCode() + " - " + response.body());
+            throw new IOException("Qdrant upsert failed: " + response.statusCode() + " - " + response.body());
+        }
+    }
+
+    public void deleteByPayloadValue(String collectionName, String key, String value) {
+        try {
+            var filter = Map.of("must", List.of(Map.of("key", key, "match", Map.of("value", value))));
+            var deleteRequest = Map.of("filter", filter);
+
+            var req = HttpRequest.newBuilder()
+                    .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName + "/points/delete"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(deleteRequest)))
+                    .build();
+
+            var res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() != 200) {
+                throw new IOException("Qdrant delete failed: " + res.statusCode() + " - " + res.body());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 }
