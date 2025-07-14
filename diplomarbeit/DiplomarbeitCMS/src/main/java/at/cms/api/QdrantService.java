@@ -1,4 +1,4 @@
-﻿package at.cms.api;
+package at.cms.api;
 
 import at.cms.training.dto.EmbeddingDto;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,7 +19,7 @@ public class QdrantService {
     QdrantClient client = new QdrantClient(
             QdrantGrpcClient.newBuilder(qdrant_Server_URL, 6334, false).build());
 
-    public List<String> search(float[] vector) throws IOException, InterruptedException {
+    public List<String> search_Document_Chunks(float[] vector) throws IOException, InterruptedException {
         try {
             var requestBody = Map.of(
                     "vector", vector,
@@ -44,6 +44,8 @@ public class QdrantService {
             throw new IOException("Error during search in Qdrant: " + e.getMessage(), e);
         }
     }
+
+
 
     public void createCollectionAndAddVectors(String id, String documentID, float[] vectors, EmbeddingDto metaData) throws IOException {
         try {
