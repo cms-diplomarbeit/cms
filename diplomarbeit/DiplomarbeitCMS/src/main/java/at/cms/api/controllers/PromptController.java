@@ -1,7 +1,7 @@
 package at.cms.api.controllers;
 
 import at.cms.api.dto.PromptRequest;
-import at.cms.api.dto.PromptResponse;
+import at.cms.api.dto.llm_Context_Response;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,7 +24,7 @@ public class PromptController {
     }
 
     @PostMapping
-    public ResponseEntity<PromptResponse> processPrompt(@RequestBody PromptRequest request) {
+    public ResponseEntity<llm_Context_Response> processPrompt(@RequestBody PromptRequest request) {
         try {
             // Convert to chunks
             List<String> promptChunks = List.of(request.getPrompt());
