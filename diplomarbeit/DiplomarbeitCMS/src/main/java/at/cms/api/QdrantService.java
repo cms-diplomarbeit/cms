@@ -3,49 +3,64 @@ package at.cms.api;
 import at.cms.training.dto.EmbeddingDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import io.qdrant.client.QdrantClient;
-import io.qdrant.client.QdrantGrpcClient;
+import java.net.http.*;
+import java.util.*;
 
 public class QdrantService {
-    private final String qdrant_Server_URL = "http://file1.lan.elite-zettl.at";
-    QdrantClient client = new QdrantClient(
-            QdrantGrpcClient.newBuilder(qdrant_Server_URL, 6334, false).build());
+    private final String qdrant_Server_URL = "http://file1.lan.elite-zettl.at:6334";
 
-    public List<String> search_Document_Chunks(float[] vector) throws IOException, InterruptedException {
-        try {
-            var requestBody = Map.of(
-                    "vector", vector,
-                    "top", 3
-            );
+    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final ObjectMapper mapper = new ObjectMapper();
 
-            var client = HttpClient.newHttpClient();
-            var req = HttpRequest.newBuilder()
-                    .uri(URI.create(qdrant_Server_URL + "/collections/knowledge/points/search"))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(new ObjectMapper().writeValueAsString(requestBody)))
-                    .build();
+    public List<String> search(float[] vector) throws IOException, InterruptedException {
+        var requestBody = Map.of(
+                "vector", vector,
+                "top", 3
+        );
 
-            var response = client.send(req, HttpResponse.BodyHandlers.ofString());
-            var json = new ObjectMapper().readTree(response.body());
-            List<String> results = new ArrayList<>();
-            for (JsonNode hit : json.get("result")) {
-                results.add(hit.get("payload").get("text").asText());
-            }
-            return results;
-        } catch (IOException | InterruptedException e) {
-            throw new IOException("Error during search in Qdrant: " + e.getMessage(), e);
+        var req = HttpRequest.newBuilder()
+                .uri(URI.create(qdrant_Server_URL + "/collections/knowledge/points/search"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(requestBody)))
+                .build();
+
+        var response = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        var json = mapper.readTree(response.body());
+
+        List<String> results = new ArrayList<>();
+        for (JsonNode hit : json.get("result")) {
+            results.add(hit.get("payload").get("text").asText());
         }
+        return results;
     }
 
+    public void createCollectionAndAddVectors(int id, String documentID, float[] vectors, EmbeddingDto metaData) throws IOException, InterruptedException {
+        createCollection(documentID, vectors.length);
+        addVectorPoint(documentID, id, vectors, documentID, metaData.getChunk_index());
+    }
 
+    private void createCollection(String collectionName, int vectorSize) throws IOException, InterruptedException {
+        var collectionConfig = Map.of(
+                "vectors", Map.of(
+                        "size", vectorSize,
+                        "distance", "Dot"
+                )
+        );
+
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName))
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(collectionConfig)))
+                .build();
+
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200 && response.statusCode() != 409) {
+            throw new IOException("Failed to create collection: " + response.statusCode() + " - " + response.body());
+        }
+    }
 
     public void createCollectionAndAddVectors(String id, String documentID, float[] vectors, EmbeddingDto metaData) throws IOException {
         try {
@@ -54,6 +69,30 @@ public class QdrantService {
             //client.createCollectionAsync(metaData)
         } catch (Exception e) {
             throw new IOException("Error during upsert in Qdrant: " + e.getMessage(), e);
+        }
+    }
+
+    private void addVectorPoint(String collectionName, int chunkId, float[] vectors, String documentID, int chunkIndex) throws IOException, InterruptedException {
+        var point = Map.of(
+                "id", chunkId,
+                "vector", vectors,
+                "payload", Map.of(
+                        "documentId", documentID,
+                        "chunkIndex", chunkIndex
+                )
+        );
+
+        var requestBody = Map.of("points", List.of(point));
+
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName + "/points"))
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(requestBody)))
+                .build();
+
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new IOException("Failed to add vector point: " + response.statusCode() + " - " + response.body());
         }
     }
 }
