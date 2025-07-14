@@ -71,8 +71,6 @@ public class Monitor {
         this.tikaService = new TikaService("http://dev1.lan.elite-zettl.at:9998");
         this.embeddingService = new EmbeddingService("http://file1.lan.elite-zettl.at:11434");
 
-
-
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
             try {
                 checkFiles();
