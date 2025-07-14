@@ -2,6 +2,7 @@ package at.cms.api.controllers;
 
 import at.cms.api.dto.PromptRequest;
 import at.cms.api.dto.llm_Context_Response;
+import jdk.jshell.spi.ExecutionControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,12 +35,14 @@ public class PromptController {
             
             // Search the chunks in Qdrant
             List<String> results = qdrantService.search_Document_Chunks(embeddings.getEmbeddings()[0]);
-            
-            
-            
+
             //Integer[] ids = qdrantService.search_Document_Chunks(request.getPrompt());
+
+            // Create response object
+            llm_Context_Response response = new llm_Context_Response();
         } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
         }
+        return null;
     }
 } 

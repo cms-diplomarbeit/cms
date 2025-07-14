@@ -10,12 +10,12 @@ import java.net.http.*;
 import java.util.*;
 
 public class QdrantService {
-    private final String qdrant_Server_URL = "http://file1.lan.elite-zettl.at:6334";
+    private final String qdrant_Server_URL = "http://file1.lan.elite-zettl.at:6333";
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public List<String> search(float[] vector) throws IOException, InterruptedException {
+    public List<String> search_Document_Chunks(float[] vector) throws IOException, InterruptedException {
         var requestBody = Map.of(
                 "vector", vector,
                 "top", 3
@@ -59,16 +59,6 @@ public class QdrantService {
         var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200 && response.statusCode() != 409) {
             throw new IOException("Failed to create collection: " + response.statusCode() + " - " + response.body());
-        }
-    }
-
-    public void createCollectionAndAddVectors(String id, String documentID, float[] vectors, EmbeddingDto metaData) throws IOException {
-        try {
-            // Qdrant doku anschauen
-            // die collection soll wie die datei heißen und tiefe soll von der länge der Vektoren abhängen
-            //client.createCollectionAsync(metaData)
-        } catch (Exception e) {
-            throw new IOException("Error during upsert in Qdrant: " + e.getMessage(), e);
         }
     }
 
