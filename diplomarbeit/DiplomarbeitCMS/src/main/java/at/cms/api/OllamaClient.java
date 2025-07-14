@@ -1,23 +1,19 @@
 package at.cms.api;
-import java.util.Scanner;
 
+import at.cms.training.db.Repository;
+import at.cms.training.Monitor;
 
 public class OllamaClient {
+    public static void main(String[] args) {
+        Repository.connect();
 
-    private static final Scanner scanner = new Scanner(System.in);
+        String watchDir = args.length > 0 ? args[0] : "./watched";
+        new Monitor(watchDir);
 
-    public static void main(String[] args) throws Exception {
-        SelectionHandler();
-    }
-
-    public static void SelectionHandler() {
-        System.out.println("Bitte wählen Sie eines der folgenden Optionen aus: ");
-        System.out.println("1) Tagesabruf");
-        System.out.println("2) Vergleich zweier Datensätze");
-        System.out.println("3) Abruf per SubscriptionTag");
-        System.out.print("Ihre Eingabe: ");
-        String input = scanner.nextLine();
-
-        AIRequest.Choice(Integer.parseInt(input));
+        try {
+            Thread.currentThread().join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

@@ -1,4 +1,4 @@
-﻿package at.cms.api;
+package at.cms.api;
 
 import at.cms.training.dto.EmbeddingDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,7 +58,6 @@ public class EmbeddingService {
         return result;
     }
 
-    // JSON Body Handler von den Embeddings
     private HttpResponse.BodyHandler<EmbeddingDto> jsonBodyHandler() {
         return _ -> HttpResponse.BodySubscribers.mapping(
                 HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8),
