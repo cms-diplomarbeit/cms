@@ -1,6 +1,5 @@
 package at.cms.api;
 
-import at.cms.training.dto.EmbeddingDto;
 import org.json.JSONObject;
 import java.io.IOException;
 import java.net.URI;
@@ -8,10 +7,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.logging.Logger;
-import java.util.ArrayList;
-import java.util.List;
-import java.nio.charset.StandardCharsets;
-import com.fasterxml.jackson.databind.ObjectMapper;
+
 
 public class TikaService {
     private static final Logger log = Logger.getLogger(TikaService.class.getName());

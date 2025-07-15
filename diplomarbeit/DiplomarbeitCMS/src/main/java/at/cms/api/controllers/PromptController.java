@@ -1,8 +1,6 @@
 package at.cms.api.controllers;
 
 import at.cms.api.dto.PromptRequest;
-import at.cms.api.dto.llm_Context_Response;
-import jdk.jshell.spi.ExecutionControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,28 +19,24 @@ public class PromptController {
 
     public PromptController() {
         this.qdrantService = new QdrantService();
-        this.embeddingService = new EmbeddingService("http://file1.lan.elite-zettl.at:11434");
+        this.embeddingService = new EmbeddingService("http://file1.lan.elite-zettl.at");
     }
 
     @PostMapping
-    public ResponseEntity<llm_Context_Response> processPrompt(@RequestBody PromptRequest request) {
+    public ResponseEntity<List<String>> processPrompt(@RequestBody PromptRequest request) {
         try {
-            // Convert to chunks
-            List<String> promptChunks = List.of(request.getPrompt());
-
-            // Convert prompt to vector
+            // Convert prompt into chunks and then to vector
+            List<String> promptChunks = List.of();
             EmbeddingDto embeddings = embeddingService.getEmbeddings(promptChunks);
             
             // Search the chunks in Qdrant
-            List<String> results = qdrantService.search_Document_Chunks(embeddings.getEmbeddings()[0]);
-
+            List<String> results = qdrantService.searchDocumentChunks(embeddings.getEmbeddings()[0]);
+            
+            return ResponseEntity.ok(results);
+            
             //Integer[] ids = qdrantService.search_Document_Chunks(request.getPrompt());
-
-            // Create response object
-            llm_Context_Response response = new llm_Context_Response();
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
+            return null;
         }
-        return null;
     }
 } 

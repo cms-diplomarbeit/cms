@@ -11,6 +11,7 @@ public class FileInfo {
     public long lastModified;
 
     public FileInfo(String filePath, File file) {
+        // TODO: Check if the ID is correct 
         this.id = UUID.randomUUID().toString();
         this.filePath = filePath;
         this.fileName = file.getName();
