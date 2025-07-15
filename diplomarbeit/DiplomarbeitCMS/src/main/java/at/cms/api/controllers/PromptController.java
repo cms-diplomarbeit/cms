@@ -19,7 +19,7 @@ public class PromptController {
 
     public PromptController() {
         this.qdrantService = new QdrantService();
-        this.embeddingService = new EmbeddingService("http://file1.lan.elite-zettl.at");
+        this.embeddingService = new EmbeddingService();
     }
 
     @PostMapping

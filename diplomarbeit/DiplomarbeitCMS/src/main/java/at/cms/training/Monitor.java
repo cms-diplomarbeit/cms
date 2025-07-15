@@ -48,8 +48,8 @@ public class Monitor {
         this.watchDir = watchDir;
         this.qdrantService = new QdrantService();
         this.trackedFiles = new ConcurrentHashMap<>();
-        this.tikaService = new TikaService("http://dev1.lan.elite-zettl.at:9998");
-        this.embeddingService = new EmbeddingService("http://file1.lan.elite-zettl.at:11434");
+        this.tikaService = new TikaService();
+        this.embeddingService = new EmbeddingService();
 
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
             try {
@@ -110,7 +110,6 @@ public class Monitor {
         try (Connection conn = Repository.getConnection()) {
             try {
                 insertDocumentMetadata(conn, filePath, content);
-                conn.commit();
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -223,8 +222,9 @@ public class Monitor {
             VALUES (?, ?, ?, ?)
         """;
 
-        log.info("Inserting chunks for: " + filename);
+        log.info("Processing " + chunks.size() + " chunks for: " + filename);
         
+        // Insert all chunks into database using batch
         try (PreparedStatement chunkStmt = conn.prepareStatement(insertChunkSql)) {
             for (int i = 0; i < chunks.size(); i++) {
                 String chunkId = UUID.randomUUID().toString();
@@ -233,21 +233,23 @@ public class Monitor {
                 chunkStmt.setString(2, documentId);
                 chunkStmt.setString(3, chunks.get(i));
                 chunkStmt.setInt(4, i);
-                chunkStmt.executeUpdate();
+                chunkStmt.addBatch();
             }
+            chunkStmt.executeBatch();
         }
 
-        log.info("Creating embeddings for: " + filename);
+        log.info("Saving Metadata to Database");
+        conn.commit();
 
-        // Create embeddings for the chunks
+        log.info("Creating embeddings for all " + chunks.size() + " chunks of: " + filename);
+
+        // Create embeddings for all chunks at once
         EmbeddingDto embeddings = embeddingService.getEmbeddings(chunks);
 
-        log.info("Updating qdrant Storage with vectorised chunks for: " + filename);
-
-        // Update qdrant Storage with vectorised chunks
+        // Update Qdrant with all vectors at once
         qdrantService.createCollectionAndInsertVectors(filename, embeddings, documentId, chunkIds);
 
-        log.info("New document processed: " + filePath.getFileName());
+        log.info("Document processing completed: " + filePath.getFileName());
     }
 
     private boolean documentExists(Connection conn, String title) throws SQLException {

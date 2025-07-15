@@ -10,12 +10,11 @@ import java.util.logging.Logger;
 
 
 public class TikaService {
+    private final String tikaServerAddress = "http://dev1.lan.elite-zettl.at:9998";
     private static final Logger log = Logger.getLogger(TikaService.class.getName());
-    private final String tikaServerAddress;
     private final HttpClient client;
 
-    public TikaService(String tikaServerAddress) {
-        this.tikaServerAddress = tikaServerAddress;
+    public TikaService() {
         this.client = HttpClient.newHttpClient();
     }
 

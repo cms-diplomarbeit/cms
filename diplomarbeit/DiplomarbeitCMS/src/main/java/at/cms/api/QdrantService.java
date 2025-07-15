@@ -57,9 +57,13 @@ public class QdrantService {
     }
 
     public void upsertVector(String collectionName, EmbeddingDto embeddings, String documentId, List<String> chunkIds) throws IOException, InterruptedException {
-        System.out.println("Upserting vectors for: " + collectionName);
+        System.out.println("Upserting " + embeddings.getEmbeddings().length + " vectors for document: " + documentId + " in collection: " + collectionName);
         List<Map<String, Object>> points = new ArrayList<>();
         float[][] vectors = embeddings.getEmbeddings();
+        
+        if (vectors.length != chunkIds.size()) {
+            throw new IllegalArgumentException("Number of embeddings (" + vectors.length + ") does not match number of chunk IDs (" + chunkIds.size() + ")");
+        }
         
         for (int i = 0; i < vectors.length; i++) {
             Map<String, Object> point = Map.of(
@@ -69,7 +73,10 @@ public class QdrantService {
                     "document_id", documentId,
                     "chunk_id", chunkIds.get(i),
                     "chunk_index", i,
-                    "collection_name", collectionName
+                    "total_chunks", vectors.length,
+                    "collection_name", collectionName,
+                    "embedding_model", "mxbai-embed-large",
+                    "timestamp", System.currentTimeMillis()
                 )
             );
             points.add(point);
@@ -90,6 +97,7 @@ public class QdrantService {
         if (response.statusCode() != 200) {
             throw new IOException("Qdrant upsert failed: " + response.statusCode() + " - " + response.body());
         }
+        System.out.println("Successfully upserted " + points.size() + " vectors");
     }
 
     public List<String> searchDocumentChunks(float[] vector) throws IOException, InterruptedException {
