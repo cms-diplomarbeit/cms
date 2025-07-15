@@ -212,6 +212,9 @@ public class Monitor {
             docStmt.executeUpdate();
         }
 
+        log.info("Saving Metadata to Database");
+        conn.commit();
+
         // Create and store chunks using extracted text        
         SampleTextSplitter splitter = new SampleTextSplitter();
         List<String> chunks = splitter.split(extractedText);
@@ -238,7 +241,7 @@ public class Monitor {
             chunkStmt.executeBatch();
         }
 
-        log.info("Saving Metadata to Database");
+        log.info("Saving Chunks to Database");
         conn.commit();
 
         log.info("Creating embeddings for all " + chunks.size() + " chunks of: " + filename);
