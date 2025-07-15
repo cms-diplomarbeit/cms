@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  ollama:
+    image: ghcr.io/cms-diplomarbeit/cms:ollama-latest
+    container_name: ollama
+    command: ["serve", "llama2:7B"]
+    ports:
+      - "11434:11434"
+    shm_size: "1g"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  ollama_data:
