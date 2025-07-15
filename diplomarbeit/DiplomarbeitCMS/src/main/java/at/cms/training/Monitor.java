@@ -27,28 +27,6 @@ import java.util.Set;
 import java.util.Collections;
 import java.nio.charset.StandardCharsets;
 
-// Initialize the Qdrant
-import io.qdrant.client.QdrantClient;
-import io.qdrant.client.QdrantGrpcClient;
-
-// Create Collection
-import io.qdrant.client.grpc.Collections.Distance;
-import io.qdrant.client.grpc.Collections.VectorParams;
-
-// Add Vectors
-import static io.qdrant.client.PointIdFactory.id;
-import static io.qdrant.client.ValueFactory.value;
-import static io.qdrant.client.VectorsFactory.vectors;
-import io.qdrant.client.grpc.Points.PointStruct;
-import io.qdrant.client.grpc.Points.UpdateResult;
-import static io.qdrant.client.ConditionFactory.matchKeyword;
-
-// Run a Query
-import io.qdrant.client.grpc.Points.ScoredPoint;
-import io.qdrant.client.grpc.Points.QueryPoints;
-import static io.qdrant.client.QueryFactory.nearest;
-
-
 /**
  * Monitor class that watches a directory for document changes and processes them.
  * This class is responsible for:
@@ -63,10 +41,12 @@ public class Monitor {
     private final Map<String, FileInfo> trackedFiles;
     private final TikaService tikaService;
     private final EmbeddingService embeddingService;
+    private final QdrantService qdrantService;
 
     // Observer
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
+        this.qdrantService = new QdrantService();
         this.trackedFiles = new ConcurrentHashMap<>();
         this.tikaService = new TikaService("http://dev1.lan.elite-zettl.at:9998");
         this.embeddingService = new EmbeddingService("http://file1.lan.elite-zettl.at:11434");
@@ -108,12 +88,14 @@ public class Monitor {
             
             FileInfo existingFile = trackedFiles.get(pathStr);
             if (existingFile != null) {
+                log.info("File already tracked: " + filePath.getFileName());
                 if (file.lastModified() > existingFile.lastModified) {
                     byte[] content = Files.readAllBytes(filePath);
                     updateFileMetadata(filePath, content);
                     existingFile.updateLastModified(file.lastModified());
                 }
             } else {
+                log.info("New file detected: " + filePath.getFileName());
                 byte[] byteFile = Files.readAllBytes(filePath);
                 FileInfo newFile = new FileInfo(pathStr, file);
                 trackedFiles.put(pathStr, newFile);
@@ -214,6 +196,8 @@ public class Monitor {
                 language, word_count, last_updated
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
+
+        log.info("Inserting document metadata for: " + filename);
         
         try (PreparedStatement docStmt = conn.prepareStatement(insertDocSql)) {
             docStmt.setString(1, documentId);
@@ -229,18 +213,23 @@ public class Monitor {
             docStmt.executeUpdate();
         }
 
-        // Create and store chunks using extracted text
+        // Create and store chunks using extracted text        
         SampleTextSplitter splitter = new SampleTextSplitter();
         List<String> chunks = splitter.split(extractedText);
+        List<String> chunkIds = new ArrayList<>();
         
         String insertChunkSql = """
             INSERT INTO chunks (id, document_id, content, chunk_index)
             VALUES (?, ?, ?, ?)
         """;
+
+        log.info("Inserting chunks for: " + filename);
         
         try (PreparedStatement chunkStmt = conn.prepareStatement(insertChunkSql)) {
             for (int i = 0; i < chunks.size(); i++) {
-                chunkStmt.setString(1, UUID.randomUUID().toString());
+                String chunkId = UUID.randomUUID().toString();
+                chunkIds.add(chunkId);
+                chunkStmt.setString(1, chunkId);
                 chunkStmt.setString(2, documentId);
                 chunkStmt.setString(3, chunks.get(i));
                 chunkStmt.setInt(4, i);
@@ -248,12 +237,16 @@ public class Monitor {
             }
         }
 
+        log.info("Creating embeddings for: " + filename);
+
         // Create embeddings for the chunks
         EmbeddingDto embeddings = embeddingService.getEmbeddings(chunks);
 
-        // TODO: Update qdrant Storage with vectorised chunks
+        log.info("Updating qdrant Storage with vectorised chunks for: " + filename);
 
-        
+        // Update qdrant Storage with vectorised chunks
+        qdrantService.createCollectionAndInsertVectors(filename, embeddings, documentId, chunkIds);
+
         log.info("New document processed: " + filePath.getFileName());
     }
 
@@ -296,19 +289,5 @@ public class Monitor {
             docStmt.setString(8, filePath.toString());
             docStmt.executeUpdate();
         }
-    }
-
-    private void updateDatabases(String filename, long timestamp, EmbeddingDto embeddings) throws IOException {
-        // TODO: Update both SQLite metadata and Qdrant vectors
-        // 1. Update/insert metadata in SQLite (filename, timestamp)
-        // 2. Update/insert vectors in Qdrant
-    }
-
-    private void deleteFromSqlite(String filename) {
-        // TODO: Delete file metadata from SQLite
-    }
-
-    private void deleteFromQdrant(String filename) {
-        // TODO: Delete vectors from Qdrant
     }
 }

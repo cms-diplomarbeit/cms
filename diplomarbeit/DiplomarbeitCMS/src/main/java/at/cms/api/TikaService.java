@@ -8,6 +8,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.logging.Logger;
 
+
 public class TikaService {
     private static final Logger log = Logger.getLogger(TikaService.class.getName());
     private final String tikaServerAddress;
