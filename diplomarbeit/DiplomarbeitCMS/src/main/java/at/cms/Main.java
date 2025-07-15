@@ -12,26 +12,17 @@ public class Main {
         Repository.connect();
 
         String watchDir = args.length > 0 ? args[0] : "./watched";
-        System.out.println("Starting monitor thread for directory: " + watchDir);
+        System.out.println("Starting monitor for directory: " + watchDir);
 
-        Thread monitorThread = new Thread(() -> {
-            try {
-                System.out.println("Monitor thread started, creating Monitor instance...");
-                new Monitor(watchDir);
-                System.out.println("Monitor instance created and running - checking files every 5 minutes");
-            } catch (Exception e) {
-                System.err.println("Error in monitor thread: " + e.getMessage());
-                e.printStackTrace();
-            }
-        });
-        monitorThread.start();
-
-        // Keep the main thread alive
         try {
-            System.out.println("Main thread waiting. Press Ctrl+C to exit.");
-            Thread.sleep(Long.MAX_VALUE);
-        } catch (InterruptedException e) {
-            System.out.println("Main thread interrupted, shutting down...");
+            System.out.println("Creating Monitor instance...");
+            Monitor monitor = new Monitor(watchDir);
+            System.out.println("Monitor instance created and running");
+        } catch (Exception e) {
+            System.err.println("Error in monitor: " + e.getMessage());
+            e.printStackTrace();
         }
+
+        // SpringApplication.run(Main.class, args);
     }
 }

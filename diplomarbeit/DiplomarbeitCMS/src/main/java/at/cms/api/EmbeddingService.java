@@ -12,8 +12,8 @@ import java.net.http.HttpResponse;
 import java.util.List;
 
 public class EmbeddingService {
-    private final String embeddingServerAddress = "http://file1.lan.elite-zettl.at:11434";
     private final HttpClient client;
+    private final String embeddingServerAddress = "http://file1.lan.elite-zettl.at:11434";
 
     public EmbeddingService() {
         this.client = HttpClient.newHttpClient();
@@ -23,7 +23,6 @@ public class EmbeddingService {
         JSONObject requestBody = new JSONObject();
         requestBody.put("model", "mxbai-embed-large");
         requestBody.put("input", new JSONArray(chunks));
-
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(embeddingServerAddress + "/api/embed"))
                 .header("Content-Type", "application/json")
@@ -50,17 +49,6 @@ public class EmbeddingService {
             result.setModel("mxbai-embed-large");
             result.setEmbeddings(embeddings);
             result.setChunk_index(chunks.size());
-            
-            // Set additional metadata if available in the response
-            if (jsonResponse.has("total_duration")) {
-                result.setTotal_duration(jsonResponse.getLong("total_duration"));
-            }
-            if (jsonResponse.has("load_duration")) {
-                result.setLoad_duration(jsonResponse.getLong("load_duration"));
-            }
-            if (jsonResponse.has("prompt_eval_count")) {
-                result.setPrompt_eval_count(jsonResponse.getInt("prompt_eval_count"));
-            }
             
             return result;
         } else {
