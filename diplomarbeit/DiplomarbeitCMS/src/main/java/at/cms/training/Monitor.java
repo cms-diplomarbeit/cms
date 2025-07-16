@@ -56,7 +56,7 @@ public class Monitor {
             } catch (Exception e) {
                 log.log(Level.SEVERE, "Unhandled exception in monitor check loop", e);
             }
-        }, 0, 1, TimeUnit.MINUTES);
+        }, 0, 5, TimeUnit.MINUTES);
     }
 
     private void checkFiles() {
