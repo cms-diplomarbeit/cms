@@ -1,0 +1,71 @@
+# Docker Compose for CMS Application
+
+services:
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: cms-qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    networks:
+      - cms-network
+
+  # Data Processing Service - File monitoring, extraction, database operations
+  data-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.data-processor
+    container_name: cms-data-processor
+    volumes:
+      - ./watched:/app/watched  # Mount local watched directory
+      - ./documents.db:/app/documents.db  # SQLite database
+      - processor_data:/app/data
+    environment:
+      - TIKA_URL=http://dev1.lan.elite-zettl.at:9998  # External Tika
+      - OLLAMA_URL=http://file1.lan.elite-zettl.at:11434  # External Ollama
+      - QDRANT_URL=http://qdrant:6333
+      - SERVICE_MODE=DATA_PROCESSOR
+      - JAVA_OPTS=-Xmx1g -Xms256m
+    networks:
+      - cms-network
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+
+  # Vectorization Service - Embedding generation and vector storage
+  vectorizer:
+    build:
+      context: .
+      dockerfile: Dockerfile.vectorizer
+    container_name: cms-vectorizer
+    depends_on:
+      - qdrant
+    volumes:
+      - ./documents.db:/app/documents.db  # SQLite database (read-only for chunks)
+      - vectorizer_data:/app/data
+    environment:
+      - OLLAMA_URL=http://file1.lan.elite-zettl.at:11434  # External Ollama
+      - QDRANT_URL=http://qdrant:6333
+      - SERVICE_MODE=VECTORIZER
+      - JAVA_OPTS=-Xmx2g -Xms512m
+    networks:
+      - cms-network
+    restart: unless-stopped
+
+volumes:
+  qdrant_storage:
+    driver: local
+  processor_data:
+    driver: local
+  vectorizer_data:
+    driver: local
+
+networks:
+  cms-network:
+    driver: bridge

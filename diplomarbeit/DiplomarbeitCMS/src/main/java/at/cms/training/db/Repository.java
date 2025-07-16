@@ -46,9 +46,19 @@ public class Repository {
                     document_id TEXT NOT NULL,
                     content TEXT NOT NULL,
                     chunk_index INTEGER NOT NULL,
+                    vectorized BOOLEAN DEFAULT FALSE,
                     FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
                 )
             """);
+            
+            // Add vectorized column to existing chunks table if it doesn't exist
+            try {
+                stmt.execute("ALTER TABLE chunks ADD COLUMN vectorized BOOLEAN DEFAULT FALSE");
+                log.info("Added vectorized column to chunks table");
+            } catch (SQLException e) {
+                // Column already exists, this is expected
+                log.fine("Vectorized column already exists in chunks table");
+            }
         }
     }
 

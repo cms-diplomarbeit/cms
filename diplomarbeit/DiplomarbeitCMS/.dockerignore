@@ -1,0 +1,33 @@
+# Docker ignore file for CMS application
+target/
+!target/untitled-1.0-SNAPSHOT.jar
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+docs/
+
+# Test files (optional - remove this line if you want to include tests)
+src/test/

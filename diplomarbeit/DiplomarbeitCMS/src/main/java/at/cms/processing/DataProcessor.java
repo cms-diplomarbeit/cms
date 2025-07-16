@@ -1,13 +1,10 @@
-package at.cms.training;
+package at.cms.processing;
 
-import at.cms.api.EmbeddingService;
-import at.cms.api.QdrantService;
 import at.cms.api.TikaService;
 import at.cms.config.AppConfig;
 import at.cms.ingestion.SampleTextSplitter;
 import at.cms.training.db.Repository;
 import at.cms.training.objects.FileInfo;
-import at.cms.training.dto.EmbeddingDto;
 
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -27,26 +24,30 @@ import java.sql.*;
 import java.nio.charset.StandardCharsets;
 import org.json.JSONObject;
 
-public class Monitor {
-    private static final Logger log = Logger.getLogger(Monitor.class.getName());
+/**
+ * Data Processor Service - Handles file monitoring, text extraction, and database operations
+ * Does NOT handle vectorization - that's done by the Vectorizer service
+ */
+public class DataProcessor {
+    private static final Logger log = Logger.getLogger(DataProcessor.class.getName());
     private final String watchDir;
     private final Map<String, FileInfo> trackedFiles;
     private final TikaService tikaService;
-    private final EmbeddingService embeddingService;
-    private final QdrantService qdrantService;
 
-    public Monitor(String watchDir) {
+    public DataProcessor(String watchDir) {
         this.watchDir = watchDir;
         this.trackedFiles = new ConcurrentHashMap<>();
         this.tikaService = new TikaService(AppConfig.getTikaUrl());
-        this.embeddingService = new EmbeddingService(AppConfig.getOllamaUrl());
-        this.qdrantService = new QdrantService();
 
+        log.info("DataProcessor started - watching: " + watchDir);
+        log.info("Using Tika server: " + AppConfig.getTikaUrl());
+
+        // Start file monitoring
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
             try {
                 checkFiles();
             } catch (Exception e) {
-                log.log(Level.SEVERE, "Unhandled exception in monitor check loop", e);
+                log.log(Level.SEVERE, "Unhandled exception in data processor check loop", e);
             }
         }, 0, 5, TimeUnit.MINUTES);
     }
@@ -145,8 +146,7 @@ public class Monitor {
 
                 filesToDelete.forEach(path -> {
                     trackedFiles.remove(path);
-                    qdrantService.deleteByPayloadValue("knowledge", "source", path);
-                    log.info("Removed tracking and Qdrant vector for: " + path);
+                    log.info("Removed tracking for: " + path);
                 });
 
                 conn.commit();
@@ -194,46 +194,31 @@ public class Monitor {
             docStmt.executeUpdate();
         }
 
+        // Create text chunks and store them (without vectorization)
         SampleTextSplitter splitter = new SampleTextSplitter();
         List<String> chunks = splitter.split(extractedText);
 
-        String insertChunkSql = "INSERT INTO chunks (id, document_id, content, chunk_index) VALUES (?, ?, ?, ?)";
+        String insertChunkSql = "INSERT INTO chunks (id, document_id, content, chunk_index, vectorized) VALUES (?, ?, ?, ?, ?)";
         try (PreparedStatement chunkStmt = conn.prepareStatement(insertChunkSql)) {
             for (int i = 0; i < chunks.size(); i++) {
                 chunkStmt.setString(1, UUID.randomUUID().toString());
                 chunkStmt.setString(2, documentId);
                 chunkStmt.setString(3, chunks.get(i));
                 chunkStmt.setInt(4, i);
+                chunkStmt.setBoolean(5, false); // Mark as not vectorized yet
                 chunkStmt.executeUpdate();
             }
         }
 
-        EmbeddingDto embeddings = embeddingService.getEmbeddings(chunks);
-        float[][] vectors = embeddings.getEmbeddings();
-
-        for (int i = 0; i < chunks.size(); i++) {
-            qdrantService.upsertVector(
-                    "knowledge",
-                    UUID.randomUUID().toString(),
-                    vectors[i],
-                    Map.of(
-                            "documentId", documentId,
-                            "chunkIndex", i,
-                            "text", chunks.get(i),
-                            "source", filePath.toString()
-                    )
-            );
-        }
-
-        log.info("New document processed: " + filePath.getFileName());
+        log.info("New document processed (awaiting vectorization): " + filePath.getFileName());
     }
 
     private boolean documentExists(Connection conn, String title) throws SQLException {
-        try (PreparedStatement stmt = conn.prepareStatement("SELECT COUNT(*) FROM documents WHERE title = ?")) {
+        String sql = "SELECT COUNT(*) FROM documents WHERE title = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, title);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() && rs.getInt(1) > 0;
-            }
+            ResultSet rs = stmt.executeQuery();
+            return rs.next() && rs.getInt(1) > 0;
         }
     }
 
@@ -261,6 +246,42 @@ public class Monitor {
             docStmt.setTimestamp(7, new Timestamp(System.currentTimeMillis()));
             docStmt.setString(8, filePath.toString());
             docStmt.executeUpdate();
+        }
+
+        // Update chunks (mark them as needing re-vectorization)
+        String deleteChunksSql = "DELETE FROM chunks WHERE document_id = (SELECT id FROM documents WHERE source = ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(deleteChunksSql)) {
+            stmt.setString(1, filePath.toString());
+            stmt.executeUpdate();
+        }
+
+        // Re-insert chunks
+        String documentId = getDocumentIdBySource(conn, filePath.toString());
+        SampleTextSplitter splitter = new SampleTextSplitter();
+        List<String> chunks = splitter.split(extractedText);
+
+        String insertChunkSql = "INSERT INTO chunks (id, document_id, content, chunk_index, vectorized) VALUES (?, ?, ?, ?, ?)";
+        try (PreparedStatement chunkStmt = conn.prepareStatement(insertChunkSql)) {
+            for (int i = 0; i < chunks.size(); i++) {
+                chunkStmt.setString(1, UUID.randomUUID().toString());
+                chunkStmt.setString(2, documentId);
+                chunkStmt.setString(3, chunks.get(i));
+                chunkStmt.setInt(4, i);
+                chunkStmt.setBoolean(5, false); // Mark as not vectorized yet
+                chunkStmt.executeUpdate();
+            }
+        }
+    }
+
+    private String getDocumentIdBySource(Connection conn, String source) throws SQLException {
+        String sql = "SELECT id FROM documents WHERE source = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, source);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getString("id");
+            }
+            throw new SQLException("Document not found for source: " + source);
         }
     }
 }

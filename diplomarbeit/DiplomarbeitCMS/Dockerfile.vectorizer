@@ -1,0 +1,37 @@
+# Vectorizer Service - Handles embedding generation and vector storage
+FROM maven:3.9-eclipse-temurin-22 AS builder
+
+WORKDIR /app
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+# Runtime stage
+FROM eclipse-temurin:22-jre-alpine
+
+RUN apk add --no-cache curl bash tini
+
+# Create app user
+RUN addgroup -g 1001 appgroup && \
+    adduser -D -u 1001 -G appgroup appuser
+
+WORKDIR /app
+
+# Create directories
+RUN mkdir -p /app/data && \
+    chown -R appuser:appgroup /app
+
+# Copy JAR
+COPY --from=builder /app/target/untitled-1.0-SNAPSHOT.jar /app/cms-app.jar
+
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+VOLUME ["/app/data"]
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["java", "-jar", "/app/cms-app.jar", "--vectorizer"]

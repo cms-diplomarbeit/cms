@@ -1,5 +1,6 @@
 package at.cms.api;
 
+import at.cms.config.AppConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -9,9 +10,13 @@ import java.net.http.*;
 import java.util.*;
 
 public class QdrantService {
-    private final String qdrant_Server_URL = "http://file1.lan.elite-zettl.at:6333";
+    private final String qdrant_Server_URL;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
+
+    public QdrantService() {
+        this.qdrant_Server_URL = AppConfig.getQdrantUrl();
+    }
 
     public List<String> search(float[] vector) throws IOException, InterruptedException {
         var requestBody = Map.of("vector", vector, "top", 3);
