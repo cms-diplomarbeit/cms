@@ -13,16 +13,14 @@ public class Main {
 
         String watchDir = args.length > 0 ? args[0] : "./watched";
         System.out.println("Starting monitor for directory: " + watchDir);
-
         try {
             System.out.println("Creating Monitor instance...");
-            Monitor monitor = new Monitor(watchDir);
+            new Monitor(watchDir);
             System.out.println("Monitor instance created and running");
         } catch (Exception e) {
             System.err.println("Error in monitor: " + e.getMessage());
             e.printStackTrace();
         }
-
-        // SpringApplication.run(Main.class, args);
+        SpringApplication.run(Main.class, args);
     }
 }

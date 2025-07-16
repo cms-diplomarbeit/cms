@@ -26,6 +26,10 @@ public class Repository {
     private static void initializeTables() throws SQLException {
         try (Connection conn = DriverManager.getConnection(DB_URL);
                 Statement stmt = conn.createStatement()) {
+            
+            // warum auch immer weil ich es nicht hinbekomme, dass die foreign keys funktionieren muss on sein damit cascaded wird 
+            stmt.execute("PRAGMA foreign_keys = ON;");
+            
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS documents (
                     id TEXT PRIMARY KEY,
@@ -56,6 +60,10 @@ public class Repository {
         try {
             Connection conn = DriverManager.getConnection(DB_URL);
             if (conn != null) {
+                // Enable foreign keys for this connection
+                try (Statement stmt = conn.createStatement()) {
+                    stmt.execute("PRAGMA foreign_keys = ON;");
+                }
                 conn.setAutoCommit(false);
                 return conn;
             } else {

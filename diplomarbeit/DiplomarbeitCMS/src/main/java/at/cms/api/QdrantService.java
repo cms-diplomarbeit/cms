@@ -60,6 +60,7 @@ public class QdrantService {
         System.out.println("Upserting " + embeddings.getEmbeddings().length + " vectors for document: " + documentId + " in collection: " + collectionName);
         List<Map<String, Object>> points = new ArrayList<>();
         float[][] vectors = embeddings.getEmbeddings();
+        List<String> chunks = embeddings.getTexts();
         
         if (vectors.length != chunkIds.size()) {
             throw new IllegalArgumentException("Number of embeddings (" + vectors.length + ") does not match number of chunk IDs (" + chunkIds.size() + ")");
@@ -73,10 +74,8 @@ public class QdrantService {
                     "document_id", documentId,
                     "chunk_id", chunkIds.get(i),
                     "chunk_index", i,
-                    "total_chunks", vectors.length,
                     "collection_name", collectionName,
-                    "embedding_model", "mxbai-embed-large",
-                    "timestamp", System.currentTimeMillis()
+                    "text", chunks.get(i)
                 )
             );
             points.add(point);
@@ -101,48 +100,90 @@ public class QdrantService {
     }
 
     public List<String> searchDocumentChunks(float[] vector) throws IOException, InterruptedException {
-        try {
+        List<String> allResults = new ArrayList<>();
+        
+        // Get list of all collections
+        var collectionsRequest = HttpRequest.newBuilder()
+                .uri(URI.create(qdrant_Server_URL + "/collections"))
+                .GET()
+                .build();
+                
+        var collectionsResponse = httpClient.send(collectionsRequest, HttpResponse.BodyHandlers.ofString());
+        var collectionsJson = mapper.readTree(collectionsResponse.body());
+        
+        // Search in each collection
+        for (JsonNode collection : collectionsJson.get("result").get("collections")) {
+            String collectionName = collection.get("name").asText();
+            System.out.println("Searching in collection: " + collectionName);
+            
             var requestBody = Map.of(
-                    "vector", vector,
-                    "top", 3
+                "vector", vector,
+                "top", 5,
+                "score_threshold", 0.7, 
+                "with_payload", true 
             );
 
-            var client = HttpClient.newHttpClient();
-            var req = HttpRequest.newBuilder()
-                    .uri(URI.create(qdrant_Server_URL + "/collections/knowledge/points/search"))
+            var searchRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName + "/points/search"))
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(new ObjectMapper().writeValueAsString(requestBody)))
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(requestBody)))
                     .build();
 
-            var response = client.send(req, HttpResponse.BodyHandlers.ofString());
-            var json = new ObjectMapper().readTree(response.body());
-            List<String> results = new ArrayList<>();
-            for (JsonNode hit : json.get("result")) {
-                results.add(hit.get("payload").get("text").asText());
+            var response = httpClient.send(searchRequest, HttpResponse.BodyHandlers.ofString());
+            var json = mapper.readTree(response.body());
+            
+            if (json.has("result")) {
+                for (JsonNode hit : json.get("result")) {
+                    try {
+                        JsonNode payload = hit.get("payload");
+                        if (payload == null || payload.isNull()) {
+                            System.out.println("Warning: Null payload found in collection " + collectionName);
+                            continue;
+                        }
+                        
+                        String text = payload.has("text") ? payload.get("text").asText("No text available") : "No text available";
+                        
+                        String result = String.format(text);
+                        allResults.add(result);
+                    } catch (Exception e) {
+                        System.out.println("Warning: Error processing hit in collection " + collectionName + ": " + e.getMessage());
+                    }
+                }
             }
-            return results;
-        } catch (IOException | InterruptedException e) {
-            throw new IOException("Error during search in Qdrant: " + e.getMessage(), e);
         }
+        
+        if (allResults.isEmpty()) {
+            return List.of("No matching results found in any collection.");
+        }
+        
+        // Sort results by score (higher scores first)
+        allResults.sort((a, b) -> {
+            try {
+                float scoreA = Float.parseFloat(a.substring(7, a.indexOf('\n')));
+                float scoreB = Float.parseFloat(b.substring(7, b.indexOf('\n')));
+                return Float.compare(scoreB, scoreA);
+            } catch (Exception e) {
+                return 0; // Keep original order if parsing fails
+            }
+        });
+        
+        return allResults.stream()
+                        .limit(10)
+                        .toList();
     }
 
-    public void deleteByPayloadValue(String collectionName, String key, String value) {
-        try {
-            var filter = Map.of("must", List.of(Map.of("key", key, "match", Map.of("value", value))));
-            var deleteRequest = Map.of("filter", filter);
+    public void deleteCollection(String collectionName) throws IOException, InterruptedException {
+        System.out.println("Deleting collection: " + collectionName);
+        
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName))
+                .DELETE()
+                .build();
 
-            var req = HttpRequest.newBuilder()
-                    .uri(URI.create(qdrant_Server_URL + "/collections/" + collectionName + "/points/delete"))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(deleteRequest)))
-                    .build();
-
-            var res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            if (res.statusCode() != 200) {
-                throw new IOException("Qdrant delete failed: " + res.statusCode() + " - " + res.body());
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new IOException("Failed to delete collection: " + response.statusCode() + " - " + response.body());
         }
+        System.out.println("Successfully deleted collection: " + collectionName);
     }
 }
