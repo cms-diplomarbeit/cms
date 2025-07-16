@@ -4,7 +4,7 @@ import at.cms.api.EmbeddingService;
 import at.cms.api.QdrantService;
 import at.cms.api.TikaService;
 import at.cms.ingestion.SampleTextSplitter;
-import at.cms.training.db.Repository;
+import at.cms.training.db.DocumentRepository;
 import at.cms.training.objects.FileInfo;
 // Filewathcher, Tika & Embedding
 import at.cms.training.dto.EmbeddingDto;
@@ -24,8 +24,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.sql.*;
 import java.util.Set;
-import java.util.Collections;
-import java.nio.charset.StandardCharsets;
 
 /**
  * Monitor class that watches a directory for document changes and processes them.
@@ -42,14 +40,15 @@ public class Monitor {
     private final TikaService tikaService;
     private final EmbeddingService embeddingService;
     private final QdrantService qdrantService;
+    private final DocumentRepository documentRepository;
 
-    // Observer
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
         this.qdrantService = new QdrantService();
         this.trackedFiles = new ConcurrentHashMap<>();
         this.tikaService = new TikaService();
         this.embeddingService = new EmbeddingService();
+        this.documentRepository = new DocumentRepository();
 
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
             try {
@@ -57,10 +56,9 @@ public class Monitor {
             } catch (Exception e) {
                 log.log(Level.SEVERE, "Unhandled exception in monitor check loop", e);
             }
-        }, 0, 5, TimeUnit.MINUTES);
+        }, 0, 1, TimeUnit.MINUTES);
     }
 
-    // Directory Observer with Stream Processing
     private void checkFiles() {
         try {
             Set<String> currentFiles = new java.util.HashSet<>();
@@ -88,7 +86,6 @@ public class Monitor {
             
             FileInfo existingFile = trackedFiles.get(pathStr);
             if (existingFile != null) {
-                log.info("File already tracked: " + filePath.getFileName());
                 if (file.lastModified() > existingFile.lastModified) {
                     byte[] content = Files.readAllBytes(filePath);
                     updateFileMetadata(filePath, content);
@@ -107,33 +104,81 @@ public class Monitor {
     }
 
     private void processNewFile(Path filePath, byte[] content) throws Exception {
-        try (Connection conn = Repository.getConnection()) {
-            try {
-                insertDocumentMetadata(conn, filePath, content);
-            } catch (Exception e) {
-                conn.rollback();
-                throw e;
-            }
+        File file = filePath.toFile();
+        String filename = filePath.getFileName().toString();
+        JSONObject metadata = tikaService.getMetadataWithTika(content);
+        String title = metadata.optString("title", filename);
+
+        if (documentRepository.documentExists(title)) {
+            log.info("Document '" + title + "' already exists.");
+            return;
         }
+
+        String documentId = UUID.randomUUID().toString();
+        String extractedText = tikaService.extractContent(content);
+        
+        // Create and store chunks using extracted text        
+        SampleTextSplitter splitter = new SampleTextSplitter();
+        List<String> chunks = splitter.split(extractedText);
+        List<String> chunkIds = new ArrayList<>();
+        
+        // Generate chunk IDs
+        for (int i = 0; i < chunks.size(); i++) {
+            chunkIds.add(UUID.randomUUID().toString());
+        }
+
+        // Insert document and chunks into database
+        documentRepository.insertDocument(documentId, title, extractedText, filePath, metadata, file, chunks, chunkIds);
+
+        log.info("Creating embeddings for all " + chunks.size() + " chunks of: " + filename);
+
+        // Create embeddings for all chunks at once
+        EmbeddingDto embeddings = embeddingService.getEmbeddings(chunks);
+
+        // Update Qdrant with all vectors at once
+        qdrantService.createCollectionAndInsertVectors(filename, embeddings, documentId, chunkIds);
+
+        log.info("Document processing completed: " + filePath.getFileName());
     }
 
     private void updateFileMetadata(Path filePath, byte[] content) throws Exception {
-        try (Connection conn = Repository.getConnection()) {
-            try {
-                // Update document metadata
-                updateDocumentMetadata(conn, filePath, content);
-                conn.commit();
-                log.info("Document updated: " + filePath.getFileName());
-            } catch (Exception e) {
-                conn.rollback();
-                throw e;
-            }
+        String extractedText = tikaService.extractContent(content);
+        JSONObject metadata = tikaService.getMetadataWithTika(content);
+        File file = filePath.toFile();
+        String filename = filePath.getFileName().toString();
+        
+        // Update document in database
+        documentRepository.updateDocument(filePath, extractedText, metadata, file);
+
+        // Create and store new chunks
+        SampleTextSplitter splitter = new SampleTextSplitter();
+        List<String> chunks = splitter.split(extractedText);
+        List<String> chunkIds = new ArrayList<>();
+        
+        // Generate new chunk IDs
+        for (int i = 0; i < chunks.size(); i++) {
+            chunkIds.add(UUID.randomUUID().toString());
+        }
+
+        log.info("Creating new embeddings for all " + chunks.size() + " chunks of: " + filename);
+
+        // Create embeddings for all chunks at once
+        EmbeddingDto embeddings = embeddingService.getEmbeddings(chunks);
+
+        try {
+            // Delete existing collection and create new one with updated vectors
+            qdrantService.deleteCollection(filename);
+            qdrantService.createCollectionAndInsertVectors(filename, embeddings, documentRepository.getDocumentIdBySource(filePath.toString()), chunkIds);
+            log.info("Updated vector data for: " + filename);
+        } catch (Exception e) {
+            log.log(Level.SEVERE, "Failed to update vector data for: " + filename, e);
+            throw e;
         }
     }
 
     private void cleanupDeletedFiles(Set<String> currentFiles) {
         List<String> filesToDelete = new ArrayList<>();
-        
+
         // Check which tracked files no longer exist in currentFiles
         trackedFiles.keySet().forEach(path -> {
             if (!currentFiles.contains(path)) {
@@ -147,152 +192,25 @@ public class Monitor {
 
         log.info("Cleaning up " + filesToDelete.size() + " deleted files");
 
-        try (Connection conn = Repository.getConnection()) {
-            try {
-                // Delete from documents table
-                String deleteDocsSql = "DELETE FROM documents WHERE source IN (" +
-                                     String.join(",", Collections.nCopies(filesToDelete.size(), "?")) + ")";
-                try (PreparedStatement stmt = conn.prepareStatement(deleteDocsSql)) {
-                    for (int i = 0; i < filesToDelete.size(); i++) {
-                        stmt.setString(i + 1, filesToDelete.get(i));
-                    }
-                    stmt.executeUpdate();
+        try {
+            documentRepository.deleteDocuments(filesToDelete);
+
+            for (String path : filesToDelete) {
+                try {
+                    String filename = Paths.get(path).getFileName().toString();
+                    qdrantService.deleteCollection(filename);
+                    log.info("Deleted Qdrant collection for: " + filename);
+                } catch (Exception e) {
+                    log.log(Level.WARNING, "Error deleting Qdrant collection for file: " + path, e);
                 }
-
-                // Remove from tracking
-                filesToDelete.forEach(path -> {
-                    trackedFiles.remove(path);
-                    log.info("Removed tracking for deleted file: " + path);
-                });
-
-                conn.commit();
-            } catch (Exception e) {
-                conn.rollback();
-                log.log(Level.SEVERE, "Error cleaning up deleted files", e);
             }
+
+            filesToDelete.forEach(path -> {
+                trackedFiles.remove(path);
+                log.info("Removed tracking for deleted file: " + path);
+            });
         } catch (SQLException e) {
             log.log(Level.SEVERE, "Database error during cleanup", e);
-        }
-    }
-
-    private void insertDocumentMetadata(Connection conn, Path filePath, byte[] byteFile) throws Exception {
-        File file = filePath.toFile();
-        String filename = filePath.getFileName().toString();
-        JSONObject metadata = tikaService.getMetadataWithTika(byteFile);
-        String title = metadata.optString("title", filename);
-
-        if (documentExists(conn, title)) {
-            log.info("Document '" + title + "' already exists.");
-            return;
-        }
-
-        String documentId = UUID.randomUUID().toString();
-        String extractedText = tikaService.extractContent(byteFile);
-        
-        String insertDocSql = """
-            INSERT INTO documents (
-                id, title, content, source, author, created_at, 
-                language, word_count, last_updated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """;
-
-        log.info("Inserting document metadata for: " + filename);
-        
-        try (PreparedStatement docStmt = conn.prepareStatement(insertDocSql)) {
-            docStmt.setString(1, documentId);
-            docStmt.setString(2, title);
-            docStmt.setBytes(3, extractedText.getBytes(StandardCharsets.UTF_8));  // Store extracted text as BLOB
-            docStmt.setString(4, filePath.toString());
-            docStmt.setString(5, metadata.optString("author", "Unknown"));
-            String createdDate = metadata.optString("created", new java.sql.Timestamp(file.lastModified()).toString());
-            docStmt.setTimestamp(6, java.sql.Timestamp.valueOf(createdDate));
-            docStmt.setString(7, metadata.optString("language", "Unknown"));
-            docStmt.setInt(8, extractedText.length());
-            docStmt.setTimestamp(9, new java.sql.Timestamp(System.currentTimeMillis()));
-            docStmt.executeUpdate();
-        }
-
-        log.info("Saving Metadata to Database");
-        conn.commit();
-
-        // Create and store chunks using extracted text        
-        SampleTextSplitter splitter = new SampleTextSplitter();
-        List<String> chunks = splitter.split(extractedText);
-        List<String> chunkIds = new ArrayList<>();
-        
-        String insertChunkSql = """
-            INSERT INTO chunks (id, document_id, content, chunk_index)
-            VALUES (?, ?, ?, ?)
-        """;
-
-        log.info("Processing " + chunks.size() + " chunks for: " + filename);
-        
-        // Insert all chunks into database using batch
-        try (PreparedStatement chunkStmt = conn.prepareStatement(insertChunkSql)) {
-            for (int i = 0; i < chunks.size(); i++) {
-                String chunkId = UUID.randomUUID().toString();
-                chunkIds.add(chunkId);
-                chunkStmt.setString(1, chunkId);
-                chunkStmt.setString(2, documentId);
-                chunkStmt.setString(3, chunks.get(i));
-                chunkStmt.setInt(4, i);
-                chunkStmt.addBatch();
-            }
-            chunkStmt.executeBatch();
-        }
-
-        log.info("Saving Chunks to Database");
-        conn.commit();
-
-        log.info("Creating embeddings for all " + chunks.size() + " chunks of: " + filename);
-
-        // Create embeddings for all chunks at once
-        EmbeddingDto embeddings = embeddingService.getEmbeddings(chunks);
-
-        // Update Qdrant with all vectors at once
-        qdrantService.createCollectionAndInsertVectors(filename, embeddings, documentId, chunkIds);
-
-        log.info("Document processing completed: " + filePath.getFileName());
-    }
-
-    private boolean documentExists(Connection conn, String title) throws SQLException {
-        String checkSql = "SELECT COUNT(*) FROM documents WHERE title = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(checkSql)) {
-            stmt.setString(1, title);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1) > 0;
-                }
-            }
-        }
-        return false;
-    }
-
-    private void updateDocumentMetadata(Connection conn, Path filePath, byte[] content) throws Exception {
-        File file = filePath.toFile();
-        String filename = filePath.getFileName().toString();
-        JSONObject metadata = tikaService.getMetadataWithTika(content);
-        String extractedText = tikaService.extractContent(content);
-        
-        String updateDocSql = """
-            UPDATE documents SET 
-                title = ?, content = ?, author = ?, created_at = ?,
-                language = ?, word_count = ?, last_updated = ?
-            WHERE source = ?
-        """;
-        
-        try (PreparedStatement docStmt = conn.prepareStatement(updateDocSql)) {
-            docStmt.setString(1, metadata.optString("title", filename));
-            docStmt.setBytes(2, extractedText.getBytes(StandardCharsets.UTF_8)); // Store extracted text as BLOB
-            docStmt.setString(3, metadata.optString("author", "Unknown"));
-            String createdDate = metadata.optString("created", 
-                new java.sql.Timestamp(file.lastModified()).toString());
-            docStmt.setTimestamp(4, java.sql.Timestamp.valueOf(createdDate));
-            docStmt.setString(5, metadata.optString("language", "Unknown"));
-            docStmt.setInt(6, extractedText.length());
-            docStmt.setTimestamp(7, new java.sql.Timestamp(System.currentTimeMillis()));
-            docStmt.setString(8, filePath.toString());
-            docStmt.executeUpdate();
         }
     }
 }

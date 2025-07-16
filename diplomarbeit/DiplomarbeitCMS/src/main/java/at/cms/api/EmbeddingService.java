@@ -20,6 +20,10 @@ public class EmbeddingService {
     }
 
     public EmbeddingDto getEmbeddings(List<String> chunks) throws IOException, InterruptedException {
+        if (chunks == null || chunks.isEmpty()) {
+            throw new IllegalArgumentException("Chunks cannot be null or empty");
+        }
+
         JSONObject requestBody = new JSONObject();
         requestBody.put("model", "mxbai-embed-large");
         requestBody.put("input", new JSONArray(chunks));
@@ -46,9 +50,9 @@ public class EmbeddingService {
             }
 
             EmbeddingDto result = new EmbeddingDto();
-            result.setModel("mxbai-embed-large");
             result.setEmbeddings(embeddings);
             result.setChunk_index(chunks.size());
+            result.setTexts(chunks);  // Store the original text chunks
             
             return result;
         } else {
