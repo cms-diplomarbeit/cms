@@ -13,10 +13,11 @@ import java.util.List;
 
 public class EmbeddingService {
     private final HttpClient client;
-    private final String embeddingServerAddress = "http://file1.lan.elite-zettl.at:11434";
+    private final String embeddingServerAddress;
 
-    public EmbeddingService() {
+    public EmbeddingService(String embeddingServerAddress) {
         this.client = HttpClient.newHttpClient();
+        this.embeddingServerAddress = embeddingServerAddress;
     }
 
     public EmbeddingDto getEmbeddings(List<String> chunks) throws IOException, InterruptedException {

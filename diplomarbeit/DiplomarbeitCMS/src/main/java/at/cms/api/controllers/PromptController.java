@@ -1,6 +1,7 @@
 package at.cms.api.controllers;
 
 import at.cms.api.dto.PromptRequest;
+import at.cms.config.AppConfig;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,8 +21,8 @@ public class PromptController {
     private final EmbeddingService embeddingService;
 
     public PromptController() {
-        this.qdrantService = new QdrantService();
-        this.embeddingService = new EmbeddingService();
+        this.qdrantService = new QdrantService(AppConfig.getQdrantUrl());
+        this.embeddingService = new EmbeddingService(AppConfig.getEmbeddingUrl());
     }
 
     @PostMapping("/prompt")

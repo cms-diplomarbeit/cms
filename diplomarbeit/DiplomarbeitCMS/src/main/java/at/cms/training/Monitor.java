@@ -3,6 +3,7 @@ package at.cms.training;
 import at.cms.api.EmbeddingService;
 import at.cms.api.QdrantService;
 import at.cms.api.TikaService;
+import at.cms.config.AppConfig;
 import at.cms.ingestion.SampleTextSplitter;
 import at.cms.training.db.DocumentRepository;
 import at.cms.training.objects.FileInfo;
@@ -44,10 +45,10 @@ public class Monitor {
 
     public Monitor(String watchDir) {
         this.watchDir = watchDir;
-        this.qdrantService = new QdrantService();
+        this.qdrantService = new QdrantService(AppConfig.getQdrantUrl());
         this.trackedFiles = new ConcurrentHashMap<>();
-        this.tikaService = new TikaService();
-        this.embeddingService = new EmbeddingService();
+        this.tikaService = new TikaService(AppConfig.getTikaUrl());
+        this.embeddingService = new EmbeddingService(AppConfig.getEmbeddingUrl());
         this.documentRepository = new DocumentRepository();
 
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {

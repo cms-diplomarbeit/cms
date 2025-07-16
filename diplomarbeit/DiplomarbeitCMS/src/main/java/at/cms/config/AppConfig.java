@@ -4,6 +4,7 @@ public class AppConfig {
     private static final String DEFAULT_QDRANT_URL = "http://localhost:6333";
     private static final String DEFAULT_OLLAMA_URL = "http://file1.lan.elite-zettl.at:11434";
     private static final String DEFAULT_TIKA_URL = "http://dev1.lan.elite-zettl.at:9998";
+    private static final String DEFAULT_EMBEDDING_URL = "http://file1.lan.elite-zettl.at:11434";
     
     public enum ServiceMode {
         DATA_PROCESSOR,
@@ -21,6 +22,10 @@ public class AppConfig {
     
     public static String getTikaUrl() {
         return System.getenv().getOrDefault("TIKA_URL", DEFAULT_TIKA_URL);
+    }
+
+    public static String getEmbeddingUrl() {
+        return System.getenv().getOrDefault("EMBEDDING_URL", DEFAULT_EMBEDDING_URL);
     }
     
     public static String getWatchDir() {

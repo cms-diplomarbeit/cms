@@ -26,7 +26,7 @@ public class Vectorizer {
 
     public Vectorizer() {
         this.embeddingService = new EmbeddingService(AppConfig.getOllamaUrl());
-        this.qdrantService = new QdrantService();
+        this.qdrantService = new QdrantService(AppConfig.getQdrantUrl());
 
         log.info("Vectorizer started");
         log.info("Using Ollama server: " + AppConfig.getOllamaUrl());
@@ -56,7 +56,7 @@ public class Vectorizer {
             // Group chunks by document for batch processing
             Map<String, List<ChunkInfo>> chunksByDocument = new java.util.HashMap<>();
             for (ChunkInfo chunk : unvectorizedChunks) {
-                chunksByDocument.computeIfAbsent(chunk.documentId, _ -> new ArrayList<>()).add(chunk);
+                chunksByDocument.computeIfAbsent(chunk.documentId, comedy_gold -> new ArrayList<>()).add(chunk);
             }
 
             for (Map.Entry<String, List<ChunkInfo>> entry : chunksByDocument.entrySet()) {

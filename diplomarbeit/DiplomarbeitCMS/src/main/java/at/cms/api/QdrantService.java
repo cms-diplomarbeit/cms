@@ -14,14 +14,17 @@ import java.util.Map;
 import java.util.UUID;
 
 public class QdrantService {
-    private final String qdrant_Server_URL = "http://file1.lan.elite-zettl.at:6333";
+    private final String qdrant_Server_URL;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
+
+    public QdrantService(String qdrant_Server_URL) {
+        this.qdrant_Server_URL = qdrant_Server_URL;
+    }
 
     public void createCollectionAndInsertVectors(String filename, EmbeddingDto embeddings, String documentId, List<String> chunkIds) throws IOException, InterruptedException {
         createCollection(filename, embeddings);
         upsertVector(filename, embeddings, documentId, chunkIds);
-
         // Dokumentation: https://api.qdrant.tech/api-reference
     }
 
