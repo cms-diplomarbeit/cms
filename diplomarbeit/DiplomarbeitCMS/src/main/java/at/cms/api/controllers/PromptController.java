@@ -1,5 +1,7 @@
 package at.cms.api.controllers;
 
+//TODO: Refactor this controller to a Quarkus controller not using Spring
+
 import at.cms.api.dto.PromptRequest;
 import at.cms.config.AppConfig;
 import org.springframework.http.ResponseEntity;

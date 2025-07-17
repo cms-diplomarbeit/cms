@@ -1,5 +1,7 @@
 package at.cms;
 
+// TODO: Remove Springboot and add Quarkus 
+
 import at.cms.training.db.Repository;
 import at.cms.training.Monitor;
 import org.springframework.boot.SpringApplication;
