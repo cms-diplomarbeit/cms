@@ -1,22 +1,36 @@
 package at.cms.rag;
 
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 
-@RestController
-@RequestMapping("/api")
+@Path("/api")
+@Produces(MediaType.APPLICATION_JSON)
+@Consumes(MediaType.APPLICATION_JSON)
 public class RagController {
-    private final RagService ragService;
+    
+    @Inject
+    RagService ragService;
 
-    public RagController(RagService ragService) {
-        this.ragService = ragService;
-    }
-
-    @GetMapping("/ask")
-    public String ask(@RequestParam String q) throws IOException, InterruptedException {
-        return ragService.ask(q);
+    @GET
+    @Path("/ask")
+    @Produces(MediaType.TEXT_PLAIN)
+    public Response ask(@QueryParam("q") String query) {
+        try {
+            if (query == null || query.trim().isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Query parameter 'q' is required")
+                    .build();
+            }
+            
+            String answer = ragService.ask(query);
+            return Response.ok(answer).build();
+        } catch (IOException | InterruptedException e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity("Error processing query: " + e.getMessage())
+                .build();
+        }
     }
 }

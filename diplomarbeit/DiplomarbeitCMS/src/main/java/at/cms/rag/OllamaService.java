@@ -1,5 +1,7 @@
 package at.cms.rag;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import at.cms.config.AppConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -10,7 +12,14 @@ import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
 
+@ApplicationScoped
 public class OllamaService {
+    private final String ollamaUrl;
+
+    public OllamaService() {
+        this.ollamaUrl = AppConfig.getOllamaUrl();
+    }
+
     public String generateAnswer(String context, String question) throws IOException, InterruptedException {
         String prompt = String.format("""
             You are a helpful assistant. Answer the question using the following context:
@@ -31,7 +40,7 @@ public class OllamaService {
 
         var client = HttpClient.newHttpClient();
         var req = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:11434/api/chat"))
+            .uri(URI.create(ollamaUrl + "/api/chat"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(new ObjectMapper().writeValueAsString(request)))
             .build();

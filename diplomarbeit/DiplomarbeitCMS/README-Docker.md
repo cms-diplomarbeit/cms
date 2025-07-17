@@ -102,8 +102,8 @@ The application supports the following environment variables:
 |---------|------|-------------|
 | Qdrant | 6333 | REST API |
 | Qdrant | 6334 | gRPC API |
-| Data Processor | - | Internal service (file monitoring) |
-| Vectorizer | - | Internal service (embedding generation) |
+| Data Processor | 8080 | Health check and API |
+| Vectorizer | 8081 | Health check and API |
 | Ollama | 11434 | External LLM service |
 | Tika | 9998 | External document processing |
 
@@ -121,6 +121,20 @@ The application supports the following environment variables:
    - **Vectorizer**: Create embeddings using Ollama and store vectors in Qdrant
    - Update the SQLite database with metadata
 
+### Querying Documents (RAG)
+
+Once documents are processed and vectorized, you can query them using the RAG API:
+
+```bash
+# Ask a question about your documents
+curl "http://localhost:8080/api/ask?q=What is the main topic of the document?"
+
+# Search for document chunks (returns raw chunks)
+curl -X POST http://localhost:8080/api/prompt \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "search query"}'
+```
+
 ### Monitoring
 
 ```bash
@@ -137,8 +151,10 @@ docker-compose logs -f
 docker-compose ps
 
 # Check service health
-docker-compose exec qdrant curl http://localhost:6333/health
-docker-compose exec ollama curl http://localhost:11434/api/version
+curl http://localhost:6333/
+curl http://localhost:8080/health  # Data Processor health check
+curl http://localhost:8081/health  # Vectorizer health check  
+curl http://file1.lan.elite-zettl.at:11434/api/version  # External Ollama check
 curl http://dev1.lan.elite-zettl.at:9998/version  # External Tika check
 ```
 
@@ -146,6 +162,10 @@ curl http://dev1.lan.elite-zettl.at:9998/version  # External Tika check
 
 - **Qdrant Web UI**: http://localhost:6333/dashboard
 - **Qdrant API**: http://localhost:6333
+- **Data Processor Health**: http://localhost:8080/health
+- **Vectorizer Health**: http://localhost:8081/health
+- **RAG Query API**: http://localhost:8080/api/ask?q=your_question
+- **Document Search API**: http://localhost:8080/api/prompt
 - **Ollama API**: http://file1.lan.elite-zettl.at:11434 (external)
 - **Tika API**: http://dev1.lan.elite-zettl.at:9998 (external)
 

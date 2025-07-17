@@ -1,37 +1,37 @@
 package at.cms.api.controllers;
 
-//TODO: Refactor this controller to a Quarkus controller not using Spring
-
 import at.cms.api.dto.PromptRequest;
 import at.cms.config.AppConfig;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
 import at.cms.api.QdrantService;
-import java.util.List;
 import at.cms.api.EmbeddingService;
 import at.cms.training.dto.EmbeddingDto;
-import org.springframework.http.HttpStatus;
+
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import java.util.List;
 import java.util.Collections;
 
-@RestController
-@RequestMapping("/api")
+@Path("/api")
+@Produces(MediaType.APPLICATION_JSON)
+@Consumes(MediaType.APPLICATION_JSON)
 public class PromptController {
     private final QdrantService qdrantService;
     private final EmbeddingService embeddingService;
 
     public PromptController() {
         this.qdrantService = new QdrantService(AppConfig.getQdrantUrl());
-        this.embeddingService = new EmbeddingService(AppConfig.getEmbeddingUrl());
+        this.embeddingService = new EmbeddingService(AppConfig.getOllamaUrl());
     }
 
-    @PostMapping("/prompt")
-    public ResponseEntity<?> processPrompt(@RequestBody PromptRequest request) {
+    @POST
+    @Path("/prompt")
+    public Response processPrompt(PromptRequest request) {
         try {
             if (request.getPrompt() == null || request.getPrompt().trim().isEmpty()) {
-                return ResponseEntity.badRequest().body("Prompt cannot be empty");
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Prompt cannot be empty")
+                    .build();
             }
 
             // Convert prompt to vector
@@ -42,15 +42,15 @@ public class PromptController {
             List<String> results = qdrantService.searchDocumentChunks(embeddings.getEmbeddings()[0]);
             
             if (results.isEmpty()) {
-                return ResponseEntity.ok("No relevant documents found for the given prompt.");
+                return Response.ok("No relevant documents found for the given prompt.").build();
             }
             
-            return ResponseEntity.ok(results);
+            return Response.ok(results).build();
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("Error processing prompt: " + e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity("Error processing prompt: " + e.getMessage())
+                .build();
         }
     }
 } 

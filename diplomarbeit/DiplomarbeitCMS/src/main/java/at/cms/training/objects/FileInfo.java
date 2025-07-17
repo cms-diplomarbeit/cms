@@ -11,8 +11,8 @@ public class FileInfo {
     public long lastModified;
 
     public FileInfo(String filePath, File file) {
-        // TODO: Check if the ID is correct 
-        this.id = UUID.randomUUID().toString();
+        // Generate deterministic ID based on file path for consistency
+        this.id = UUID.nameUUIDFromBytes(filePath.getBytes()).toString();
         this.filePath = filePath;
         this.fileName = file.getName();
         this.createdAt = file.lastModified();

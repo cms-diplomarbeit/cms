@@ -48,7 +48,7 @@ public class Monitor {
         this.qdrantService = new QdrantService(AppConfig.getQdrantUrl());
         this.trackedFiles = new ConcurrentHashMap<>();
         this.tikaService = new TikaService(AppConfig.getTikaUrl());
-        this.embeddingService = new EmbeddingService(AppConfig.getEmbeddingUrl());
+        this.embeddingService = new EmbeddingService(AppConfig.getOllamaUrl());
         this.documentRepository = new DocumentRepository();
 
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {

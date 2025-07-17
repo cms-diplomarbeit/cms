@@ -1,5 +1,7 @@
 package at.cms.rag;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import at.cms.config.AppConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -11,8 +13,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+@ApplicationScoped
 public class QdrantService {
-    private final String QDRANT_URL = "http://localhost:6333";
+    private final String qdrantUrl;
+
+    public QdrantService() {
+        this.qdrantUrl = AppConfig.getQdrantUrl();
+    }
 
     public List<String> search(float[] vector) throws IOException, InterruptedException {
         var requestBody = Map.of(
@@ -22,7 +29,7 @@ public class QdrantService {
 
         var client = HttpClient.newHttpClient();
         var req = HttpRequest.newBuilder()
-            .uri(URI.create(QDRANT_URL + "/collections/knowledge/points/search"))
+            .uri(URI.create(qdrantUrl + "/collections/knowledge/points/search"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(new ObjectMapper().writeValueAsString(requestBody)))
             .build();

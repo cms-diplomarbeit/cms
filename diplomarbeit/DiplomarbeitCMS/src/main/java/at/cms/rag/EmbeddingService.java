@@ -1,5 +1,6 @@
 package at.cms.rag;
 
+import jakarta.enterprise.context.ApplicationScoped;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import java.io.IOException;
@@ -8,13 +9,22 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
+@ApplicationScoped
 public class EmbeddingService {
+    private final String embeddingUrl;
+
+    public EmbeddingService() {
+        // For now using a simple embedding service endpoint
+        // In production, this should use the same Ollama service
+        this.embeddingUrl = System.getenv().getOrDefault("EMBEDDING_URL", "http://localhost:5000/embed");
+    }
+
     public float[] embed(String text) throws IOException, InterruptedException {
         var client = HttpClient.newHttpClient();
         var body = String.format("{\"texts\": [\"%s\"]}", text.replace("\"", "\\\""));
 
         var request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:5000/embed"))
+            .uri(URI.create(embeddingUrl))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build();

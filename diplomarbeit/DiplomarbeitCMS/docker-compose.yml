@@ -22,6 +22,8 @@ services:
       context: .
       dockerfile: Dockerfile.data-processor
     container_name: cms-data-processor
+    ports:
+      - "8080:8080"  # Health check and RAG API
     volumes:
       - ./watched:/app/watched  # Mount local watched directory
       - ./documents.db:/app/documents.db  # SQLite database
@@ -46,6 +48,8 @@ services:
     container_name: cms-vectorizer
     depends_on:
       - qdrant
+    ports:
+      - "8081:8080"  # Health check and API (different port to avoid conflict)
     volumes:
       - ./documents.db:/app/documents.db  # SQLite database (read-only for chunks)
       - vectorizer_data:/app/data
